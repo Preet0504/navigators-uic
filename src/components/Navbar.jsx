@@ -58,7 +58,8 @@ export default function Navbar() {
         /* Desktop Links */
         .nav-links {
           display: flex;
-          gap: 2rem;
+          gap: 1.5rem;
+          align-items: center;
         }
 
         .nav-item {
@@ -115,9 +116,9 @@ export default function Navbar() {
         }
 
         /* Responsive Logic */
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
           .nav-links {
-            display: none;
+            display: none !important;
           }
 
           .hamburger {
