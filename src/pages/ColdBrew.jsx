@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { useToast } from '../components/Toast';
+import Pattern from '../components/Pattern';
+
+const MEDALS = ['🥇', '🥈', '🥉'];
 
 export default function ColdBrew() {
   const { scores, updateWin, isAdmin, removePlayerScores, removeGameScores } = useAdmin();
+  const toast = useToast();
   const [view, setView] = useState('GLOBAL');
   const [newPlayer, setNewPlayer] = useState('');
   const [activeGame, setActiveGame] = useState('Uno');
@@ -11,181 +16,142 @@ export default function ColdBrew() {
   const today = new Date().toISOString().split('T')[0];
 
   const globalScores = {};
-  scores.forEach(s => {
-    if (!globalScores[s.game]) globalScores[s.game] = {};
-    if (!globalScores[s.game][s.name]) globalScores[s.game][s.name] = 0;
-    globalScores[s.game][s.name] += s.score;
+  scores.forEach((s) => {
+    (globalScores[s.game] ||= {});
+    globalScores[s.game][s.name] = (globalScores[s.game][s.name] || 0) + s.score;
   });
 
-  const historyScores = {};
-  scores.forEach(s => {
-    if (!historyScores[s.date]) historyScores[s.date] = {};
-    if (!historyScores[s.date][s.game]) historyScores[s.date][s.game] = {};
-    if (!historyScores[s.date][s.game][s.name]) historyScores[s.date][s.game][s.name] = 0;
-    historyScores[s.date][s.game][s.name] += s.score;
+  const history = {};
+  scores.forEach((s) => {
+    (history[s.date] ||= {});
+    (history[s.date][s.game] ||= {});
+    history[s.date][s.game][s.name] = (history[s.date][s.game][s.name] || 0) + s.score;
   });
-  const sortedDates = Object.keys(historyScores).sort((a,b) => new Date(b) - new Date(a));
-  const allPlayers = [...new Set(scores.map(s => s.name))];
+  const dates = Object.keys(history).sort((a, b) => new Date(b) - new Date(a));
+  const players = [...new Set(scores.map((s) => s.name))];
+  const games = [...new Set(['Uno', 'Durak', 'Smash Bros', ...scores.map((s) => s.game)])];
+
+  const log = async (name, delta) => {
+    const res = await updateWin(name, activeGame, today, delta);
+    if (res.error) toast(res.error, 'error');
+  };
 
   return (
-    <>
+    <div className="page arena">
       <style>{`
-        .mc-theme {
-          background-color: #87CEEB;
-          background-image: 
-            linear-gradient(45deg, #719df0 25%, transparent 25%, transparent 75%, #719df0 75%, #719df0),
-            linear-gradient(45deg, #719df0 25%, transparent 25%, transparent 75%, #719df0 75%, #719df0);
-          background-size: 32px 32px;
-          background-position: 0 0, 16px 16px;
-          color: #1a1a1a;
-          font-family: 'VT323', monospace;
-          min-height: 100vh;
-          padding: 5rem 2rem 2rem;
-          image-rendering: pixelated;
-        }
-        .mc-theme h1, .mc-theme h2, .mc-theme h3 {
-          font-family: 'Press Start 2P', monospace;
-          text-shadow: 2px 2px 0px #111;
-          color: white;
-          margin-bottom: 1rem;
-        }
-        .mc-block {
-          background-color: #828282;
-          border: 4px solid #111;
-          box-shadow: inset -4px -4px 0px rgba(0,0,0,0.3), inset 4px 4px 0px rgba(255,255,255,0.4);
-          padding: 2rem;
-          margin-bottom: 2rem;
-        }
-        .mc-grass {
-          background-color: #855E42;
-          border-top: 16px solid #59A533;
-        }
-        .mc-wood {
-          background-color: #B38656;
-          box-shadow: inset -4px -4px 0px rgba(92, 64, 51, 0.6), inset 4px 4px 0px rgba(255,255,255,0.5);
-        }
-        .mc-btn {
-          font-family: 'Press Start 2P', monospace;
-          background: #828282;
-          color: white; border: 4px solid #111;
-          box-shadow: inset -4px -4px 0px rgba(0,0,0,0.3), inset 4px 4px 0px rgba(255,255,255,0.6);
-          padding: 0.75rem 1rem; cursor: pointer; text-transform: uppercase; font-size: 0.8rem;
-        }
-        .mc-btn:active { box-shadow: inset 4px 4px 0px rgba(0,0,0,0.3), inset -4px -4px 0px rgba(255,255,255,0.6); transform: translate(2px, 2px); }
-        .mc-btn-primary { background: #59A533; }
-        .mc-input {
-          font-family: 'VT323', monospace; font-size: 1.5rem; border: 4px solid #111;
-          box-shadow: inset 4px 4px 0px rgba(0,0,0,0.2); padding: 0.75rem; width: 100%; margin-bottom: 1rem;
-        }
-        .mc-table { width: 100%; border-collapse: collapse; font-size: 1.5rem; background: #828282; border: 4px solid #111; }
-        .mc-table th { background: #5C4033; color: white; padding: 1rem; font-family: 'Press Start 2P', monospace; font-size: 0.8rem; border: 4px solid #111; }
-        .mc-table td { padding: 0.5rem 1rem; border: 4px solid #111; color: black; }
+        .arena { background: radial-gradient(120% 80% at 50% 0%, #024247 0%, #012c30 60%, #011d20 100%); min-height: 100vh; }
+        .arena-h1 { font-family: 'Press Start 2P', monospace; color: #fff; text-shadow: 3px 3px 0 var(--teal-darker), 0 0 18px rgba(209,159,42,.4); font-size: clamp(1.2rem, 4vw, 2.2rem); line-height: 1.5; }
+        .arcade-btn { font-family: 'Press Start 2P', monospace; font-size: 0.7rem; border: 3px solid #021f22; border-radius: 4px; padding: 0.8rem 1rem; cursor: pointer; color: #021f22; background: var(--mist); box-shadow: inset -3px -3px 0 rgba(0,0,0,.25), inset 3px 3px 0 rgba(255,255,255,.5); transition: transform .08s; text-transform: uppercase; }
+        .arcade-btn:active { transform: translate(2px,2px); box-shadow: inset 3px 3px 0 rgba(0,0,0,.25); }
+        .arcade-btn.on { background: var(--gold); color: #2a2207; }
+        .arcade-btn.teal { background: var(--teal); color: #fff; }
+        .arcade-btn.red { background: #c0392b; color: #fff; }
+        .arcade-btn.warn { background: var(--orange); color: #2a1404; }
+        .board { background: rgba(255,255,255,0.05); border: 3px solid var(--teal); border-radius: var(--r-md); overflow: hidden; backdrop-filter: blur(4px); }
+        .board-h { font-family: 'Press Start 2P', monospace; font-size: 0.78rem; color: #2a2207; background: var(--gold); padding: 0.9rem 1rem; letter-spacing: 0.02em; }
+        .row { display: flex; align-items: center; gap: 0.8rem; padding: 0.7rem 1rem; border-top: 1px solid rgba(255,255,255,0.08); color: #eafcfb; font-family: 'VT323', monospace; font-size: 1.5rem; }
+        .row .rank { width: 34px; font-weight: 700; color: var(--gold); }
+        .row .pts { margin-left: auto; font-weight: 700; color: #fff; background: rgba(0,140,149,.4); padding: 0 0.7rem; border-radius: 6px; }
+        .row.lead { background: linear-gradient(90deg, rgba(209,159,42,.25), transparent); }
+        .op-panel { background: rgba(2,66,71,.55); border: 3px dashed var(--gold); border-radius: var(--r-md); padding: 1.4rem; margin-bottom: 2.5rem; }
+        .op-input { font-family: 'VT323', monospace; font-size: 1.3rem; padding: 0.5rem 0.8rem; border-radius: 6px; border: 2px solid var(--teal); background: #eafcfb; color: #012; }
+        .pchip { display: flex; align-items: center; gap: 0.8rem; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.12); border-radius: 8px; padding: 0.5rem 0.8rem; color: #eafcfb; font-family: 'VT323', monospace; font-size: 1.4rem; }
+        .mini { font-family: 'Press Start 2P', monospace; font-size: 0.6rem; border: none; border-radius: 4px; padding: 0.5rem 0.6rem; cursor: pointer; }
       `}</style>
-      
-      <div className="mc-theme">
-        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <h1 style={{ color: '#5C4033', textShadow: 'none' }}>ARENA: COLD BREW</h1>
-          </div>
 
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
-            <button className={`mc-btn ${view === 'GLOBAL' ? 'mc-btn-primary' : ''}`} onClick={() => setView('GLOBAL')}>GLOBAL LEADERBOARD</button>
-            <button className={`mc-btn ${view === 'HISTORY' ? 'mc-btn-primary' : ''}`} onClick={() => setView('HISTORY')}>DAY-WISE HISTORY</button>
-          </div>
+      <div className="container" style={{ position: 'relative' }}>
+        <Pattern variant="rays" color="#0a6f77" opacity={0.25} style={{ top: '-40px' }} />
+        <div className="center" style={{ position: 'relative', marginBottom: '2.2rem' }}>
+          <span className="badge badge-gold" style={{ marginBottom: '0.8rem' }}>Game Night</span>
+          <h1 className="arena-h1">☕ COLD BREW ARENA</h1>
+          <p style={{ color: '#9fdad8', fontFamily: "'VT323', monospace", fontSize: '1.4rem', marginTop: '0.5rem' }}>Bragging rights, quantified.</p>
+        </div>
 
-          {isAdmin && (
-            <div className="mc-block mc-grass" style={{ marginBottom: '3rem' }}>
-              <h2 style={{ textShadow: '2px 2px 0px #000' }}>OP: QUICK LOG ({today})</h2>
-              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                <input className="mc-input" placeholder="New Player Name" value={newPlayer} onChange={e => setNewPlayer(e.target.value)} style={{ marginBottom: 0 }} />
-                <div style={{ display: 'flex', width: '100%', gap: '0.5rem' }}>
-                  <select className="mc-input" value={activeGame} onChange={e => {setActiveGame(e.target.value); setConfirmGame(null);}} style={{ marginBottom: 0 }}>
-                    {Array.from(new Set(['Uno', 'Durak', 'Smash Bros', ...scores.map(s => s.game)])).map(g => (
-                      <option key={g} value={g}>{g}</option>
-                    ))}
-                  </select>
-                  {confirmGame === activeGame ? (
-                    <button className="mc-btn" onClick={() => { removeGameScores(activeGame); setConfirmGame(null); }} style={{ background: '#a00', whiteSpace: 'nowrap' }}>SURE?</button>
-                  ) : (
-                    <button className="mc-btn" onClick={() => setConfirmGame(activeGame)} style={{ background: '#ff7700', whiteSpace: 'nowrap' }}>DEL GAME</button>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                {allPlayers.concat(newPlayer && !allPlayers.includes(newPlayer) ? [newPlayer] : []).map(p => (
-                  <div key={p} style={{ background: '#828282', border: '4px solid #111', padding: '0.5rem', display: 'flex', alignItems: 'center', gap: '1rem', color: '#000', width: '100%' }}>
-                    <span style={{ fontWeight: 'bold', fontSize: '1.5rem', textTransform: 'uppercase' }}>{p}</span>
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-                      {confirmPlayer === p ? (
-                        <button className="mc-btn" onClick={() => { removePlayerScores(p); setConfirmPlayer(null); }} style={{ background: '#a00' }}>SURE?</button>
-                      ) : (
-                        <button className="mc-btn" onClick={() => setConfirmPlayer(p)} style={{ background: '#ff7700' }}>[X]</button>
-                      )}
-                      <button className="mc-btn" onClick={() => updateWin(p, activeGame, today, -1)} style={{ background: '#ff5555' }}>[-]</button>
-                      <button className="mc-btn mc-btn-primary" onClick={() => updateWin(p, activeGame, today, 1)}>[+]</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+        <div className="center" style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center', marginBottom: '2.2rem', flexWrap: 'wrap', position: 'relative' }}>
+          <button className={`arcade-btn ${view === 'GLOBAL' ? 'on' : ''}`} onClick={() => setView('GLOBAL')}>All-Time</button>
+          <button className={`arcade-btn ${view === 'HISTORY' ? 'on' : ''}`} onClick={() => setView('HISTORY')}>By Night</button>
+        </div>
+
+        {isAdmin && (
+          <div className="op-panel">
+            <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '1rem' }}>SCOREKEEPER · {today}</h2>
+            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <input className="op-input" placeholder="New player…" value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} style={{ flex: '1 1 160px' }} />
+              <input className="op-input" list="games-list" value={activeGame} onChange={(e) => { setActiveGame(e.target.value); setConfirmGame(null); }} placeholder="Game (type any)" style={{ flex: '1 1 160px' }} />
+              <datalist id="games-list">
+                {games.map((g) => <option key={g} value={g} />)}
+              </datalist>
+              {confirmGame === activeGame && activeGame
+                ? <button className="arcade-btn red" onClick={async () => { const r = await removeGameScores(activeGame); r.error ? toast(r.error, 'error') : toast(`${activeGame} cleared`); setConfirmGame(null); }}>Sure?</button>
+                : <button className="arcade-btn warn" onClick={() => setConfirmGame(activeGame)}>Clear game</button>}
             </div>
-          )}
-
-          {view === 'GLOBAL' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-              {Object.keys(globalScores).map(game => {
-                const players = Object.entries(globalScores[game]).sort((a,b) => b[1] - a[1]);
-                return (
-                  <div key={game}>
-                    <h3 style={{ background: '#5C4033', padding: '0.5rem', margin: 0, border: '4px solid #111', borderBottom: 'none' }}>{game} (ALL TIME)</h3>
-                    <table className="mc-table">
-                      <tbody>
-                        {players.map(([name, score], idx) => (
-                          <tr key={name} style={{ background: idx === 0 ? '#ffd700' : 'transparent' }}>
-                            <td>#{idx + 1}</td>
-                            <td style={{ width: '100%' }}>{name}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{score}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {view === 'HISTORY' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
-              {sortedDates.map(date => (
-                <div key={date} className="mc-block mc-wood">
-                  <h2>SESSION: {date}</h2>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-                    {Object.keys(historyScores[date]).map(game => {
-                      const players = Object.entries(historyScores[date][game]).sort((a,b) => b[1] - a[1]);
-                      return (
-                        <div key={game}>
-                          <h3 style={{ color: '#fff' }}>{game}</h3>
-                          <table className="mc-table">
-                            <tbody>
-                              {players.map(([name, score], idx) => (
-                                <tr key={name}>
-                                  <td>{name}</td>
-                                  <td style={{ textAlign: 'right', fontWeight: 'bold' }}>+{score} WINS</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )
-                    })}
+            <div style={{ display: 'grid', gap: '0.6rem' }}>
+              {players.concat(newPlayer && !players.includes(newPlayer) ? [newPlayer] : []).map((p) => (
+                <div key={p} className="pchip">
+                  <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{p}</span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                    {confirmPlayer === p
+                      ? <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={async () => { const r = await removePlayerScores(p); r.error ? toast(r.error, 'error') : toast(`${p} removed`); setConfirmPlayer(null); }}>SURE?</button>
+                      : <button className="mini" style={{ background: 'var(--orange)', color: '#2a1404' }} onClick={() => setConfirmPlayer(p)}>DEL</button>}
+                    <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={() => log(p, -1)}>−</button>
+                    <button className="mini" style={{ background: 'var(--teal)', color: '#fff' }} onClick={() => log(p, 1)}>+ WIN</button>
                   </div>
                 </div>
               ))}
-              {sortedDates.length === 0 && <p className="mc-block">No records found.</p>}
+              {players.length === 0 && !newPlayer && <p style={{ color: '#9fdad8', fontFamily: "'VT323',monospace", fontSize: '1.3rem' }}>Type a name above and hit “+ WIN”.</p>}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {view === 'GLOBAL' && (
+          <div className="grid grid-auto" style={{ position: 'relative' }}>
+            {Object.keys(globalScores).map((game) => {
+              const rows = Object.entries(globalScores[game]).sort((a, b) => b[1] - a[1]);
+              return (
+                <div key={game} className="board">
+                  <div className="board-h">{game} · All-Time</div>
+                  {rows.map(([name, score], i) => (
+                    <div key={name} className={`row ${i === 0 ? 'lead' : ''}`}>
+                      <span className="rank">{MEDALS[i] || `#${i + 1}`}</span>
+                      <span style={{ textTransform: 'uppercase' }}>{name}</span>
+                      <span className="pts">{score}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {Object.keys(globalScores).length === 0 && <div className="empty-state board" style={{ color: '#9fdad8', gridColumn: '1/-1' }}><p>No wins logged yet. Let the games begin!</p></div>}
+          </div>
+        )}
+
+        {view === 'HISTORY' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
+            {dates.map((date) => (
+              <div key={date}>
+                <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '1rem' }}>NIGHT · {date}</h2>
+                <div className="grid grid-auto">
+                  {Object.keys(history[date]).map((game) => {
+                    const rows = Object.entries(history[date][game]).sort((a, b) => b[1] - a[1]);
+                    return (
+                      <div key={game} className="board">
+                        <div className="board-h">{game}</div>
+                        {rows.map(([name, score], i) => (
+                          <div key={name} className={`row ${i === 0 ? 'lead' : ''}`}>
+                            <span className="rank">{MEDALS[i] || `#${i + 1}`}</span>
+                            <span style={{ textTransform: 'uppercase' }}>{name}</span>
+                            <span className="pts">+{score}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {dates.length === 0 && <div className="empty-state board" style={{ color: '#9fdad8' }}><p>No game nights recorded yet.</p></div>}
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }

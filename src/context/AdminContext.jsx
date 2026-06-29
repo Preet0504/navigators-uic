@@ -1,140 +1,161 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { supabase, isConfigured, uploadHighlight, removeHighlightFile } from '../lib/supabase';
+import { SEED_EVENTS, SEED_STUDIES, SEED_LEADERS, SEED_SCORES } from '../data/seed';
 
 const AdminContext = createContext();
-
 export function useAdmin() {
   return useContext(AdminContext);
 }
 
-// Initial dummy data to display if tables are empty (optional, but keeps the look)
-const DUMMY_EVENTS = [
-  { title: 'Welcome Bonfire', date: 'Sept 5', description: 'Kick off the semester!', image: '/sample-event.png' },
-  { title: 'Fall Retreat', date: 'Oct 12', description: 'Weekend away.', image: '/sample-retreat.png' }
-];
-
-const DUMMY_STUDIES = [
-  { week: 'Wk 1', topic: 'Who is Jesus?', summary: 'Discussed the context.' }
-];
+// Tables we read/subscribe to.
+const TABLES = {
+  events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: SEED_EVENTS },
+  bible_studies: { setter: 'setStudies', order: { column: 'created_at', ascending: false }, seed: SEED_STUDIES },
+  scores: { setter: 'setScores', order: { column: 'created_at', ascending: false }, seed: SEED_SCORES },
+  highlights: { setter: 'setHighlights', order: { column: 'created_at', ascending: false }, seed: [] },
+  event_rsvps: { setter: 'setRsvps', order: { column: 'created_at', ascending: false }, seed: [] },
+  leaders: { setter: 'setLeaders', order: { column: 'sort', ascending: true }, seed: SEED_LEADERS },
+};
 
 export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [bibleStudies, setBibleStudies] = useState([]);
-  const [scores, setScores] = useState([]); 
-  const [highlights, setHighlights] = useState([]); 
-  const [rsvps, setRsvps] = useState([]); 
+  const [authReady, setAuthReady] = useState(false);
+  const [backendOk, setBackendOk] = useState(isConfigured);
 
-  const fetchData = async () => {
-    const [resEvents, resStudies, resScores, resHighlights, resRsvps] = await Promise.all([
-      supabase.from('events').select('*'),
-      supabase.from('bible_studies').select('*'),
-      supabase.from('scores').select('*'),
-      supabase.from('highlights').select('*'),
-      supabase.from('event_rsvps').select('*')
-    ]);
-    
-    // Fallbacks to dummy data if tables are empty, just for looks initially
-    setEvents((resEvents.data && resEvents.data.length > 0) ? resEvents.data : DUMMY_EVENTS);
-    setBibleStudies((resStudies.data && resStudies.data.length > 0) ? resStudies.data : DUMMY_STUDIES);
-    setScores(resScores.data || []);
-    setHighlights(resHighlights.data || []);
-    setRsvps(resRsvps.data || []);
-  };
+  const [events, setEvents] = useState(SEED_EVENTS);
+  const [studies, setStudies] = useState(SEED_STUDIES);
+  const [scores, setScores] = useState(SEED_SCORES);
+  const [highlights, setHighlights] = useState([]);
+  const [rsvps, setRsvps] = useState([]);
+  const [leaders, setLeaders] = useState(SEED_LEADERS);
 
-  useEffect(() => {
-    // 1. Fetch initial data
-    fetchData();
+  const setters = useRef({ setEvents, setStudies, setScores, setHighlights, setRsvps, setLeaders });
 
-    // 2. Subscribe to REALTIME changes for all tables
-    const channel = supabase
-      .channel('nav-hub-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bible_studies' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'highlights' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_rsvps' }, fetchData)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+  // ---- Fetch a single table, falling back to seed on error ----
+  const fetchTable = useCallback(async (name) => {
+    const cfg = TABLES[name];
+    if (!supabase) {
+      setters.current[cfg.setter](cfg.seed);
+      return;
+    }
+    const { data, error } = await supabase.from(name).select('*').order(cfg.order.column, { ascending: cfg.order.ascending });
+    if (error) {
+      // Unreachable / not provisioned → show seed so the site still looks alive.
+      setBackendOk(false);
+      setters.current[cfg.setter](cfg.seed);
+      return;
+    }
+    // Connected: always use real data (even when empty). Seed/demo content is
+    // NEVER shown against a live backend, so its fake ids can't reach the DB.
+    setBackendOk(true);
+    setters.current[cfg.setter](data);
   }, []);
 
-  // --- Events ---
-  const addEvent = async (event) => {
-    await supabase.from('events').insert([event]);
-  };
-  const updateEvent = async (id, updates) => {
-    await supabase.from('events').update(updates).eq('id', id);
-  };
-  const removeEvent = async (id) => {
-    await supabase.from('events').delete().eq('id', id);
-  };
-  
-  // --- Bible Studies ---
-  const addStudy = async (study) => {
-    await supabase.from('bible_studies').insert([study]);
-  };
-  const removeStudy = async (id) => {
-    await supabase.from('bible_studies').delete().eq('id', id);
-  };
+  const fetchAll = useCallback(() => Promise.all(Object.keys(TABLES).map(fetchTable)), [fetchTable]);
 
-  // --- Scores ---
+  // ---- Auth session ----
+  useEffect(() => {
+    if (!supabase) { setAuthReady(true); return; }
+    supabase.auth.getSession().then(({ data }) => {
+      setIsAdmin(Boolean(data.session));
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setIsAdmin(Boolean(session));
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // ---- Initial load + realtime ----
+  useEffect(() => {
+    fetchAll();
+    if (!supabase) return;
+    const channel = supabase.channel('nav-hub');
+    Object.keys(TABLES).forEach((name) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: name }, () => fetchTable(name));
+    });
+    channel.subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [fetchAll, fetchTable]);
+
+  // ---- Write helper: guards missing backend + surfaces errors ----
+  const write = useCallback(async (fn) => {
+    if (!supabase) return { error: 'Backend not configured. Connect Supabase to save changes.' };
+    try {
+      const { error } = await fn();
+      if (error) return { error: error.message };
+      return { ok: true };
+    } catch (e) {
+      return { error: e.message || 'Something went wrong' };
+    }
+  }, []);
+
+  // ---- Auth actions ----
+  const login = useCallback(async (email, password) => {
+    if (!supabase) return { error: 'Backend not configured' };
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) return { error: error.message };
+    return { ok: true };
+  }, []);
+  const logout = useCallback(async () => { if (supabase) await supabase.auth.signOut(); setIsAdmin(false); }, []);
+
+  // ---- Events ----
+  const addEvent = (event) => write(() => supabase.from('events').insert([event]).select());
+  const updateEvent = (id, updates) => write(() => supabase.from('events').update(updates).eq('id', id));
+  const removeEvent = (id) => write(() => supabase.from('events').delete().eq('id', id));
+
+  // ---- Bible studies ----
+  const addStudy = (study) => write(() => supabase.from('bible_studies').insert([study]).select());
+  const updateStudy = (id, updates) => write(() => supabase.from('bible_studies').update(updates).eq('id', id));
+  const removeStudy = (id) => write(() => supabase.from('bible_studies').delete().eq('id', id));
+
+  // ---- Leaders ----
+  const addLeader = (leader) => write(() => supabase.from('leaders').insert([leader]).select());
+  const updateLeader = (id, updates) => write(() => supabase.from('leaders').update(updates).eq('id', id));
+  const removeLeader = (id) => write(() => supabase.from('leaders').delete().eq('id', id));
+
+  // ---- Scores ----
   const updateWin = async (name, game, date, delta) => {
-    const existing = scores.find(s => s.name.toLowerCase() === name.toLowerCase() && s.game === game && s.date === date);
-    
-    if (existing) {
+    const existing = scores.find((s) => s.name.toLowerCase() === name.toLowerCase() && s.game === game && s.date === date);
+    if (existing && !existing._seed) {
       const newScore = existing.score + delta;
-      if (newScore <= 0) {
-        await supabase.from('scores').delete().eq('id', existing.id);
-      } else {
-        await supabase.from('scores').update({ score: newScore }).eq('id', existing.id);
-      }
-    } else if (delta > 0) {
-      await supabase.from('scores').insert([{ name, game, date, score: delta }]);
+      if (newScore <= 0) return write(() => supabase.from('scores').delete().eq('id', existing.id));
+      return write(() => supabase.from('scores').update({ score: newScore }).eq('id', existing.id));
+    }
+    if (delta > 0) return write(() => supabase.from('scores').insert([{ name, game, date, score: delta }]).select());
+    return { ok: true };
+  };
+  const removePlayerScores = (name) => write(() => supabase.from('scores').delete().eq('name', name));
+  const removeGameScores = (game) => write(() => supabase.from('scores').delete().eq('game', game));
+
+  // ---- Highlights (stored in Supabase Storage) ----
+  const addHighlight = async (eventId, file) => {
+    if (!supabase) return { error: 'Backend not configured' };
+    try {
+      const isVideo = file.type.startsWith('video/');
+      const { url, path } = await uploadHighlight(file, eventId);
+      return write(() => supabase.from('highlights').insert([{ event_id: eventId, type: isVideo ? 'video' : 'image', url, path }]).select());
+    } catch (e) {
+      return { error: e.message || 'Upload failed' };
     }
   };
-  
-  const removeScoreEntry = async (id) => {
-    await supabase.from('scores').delete().eq('id', id);
-  };
-  const removePlayerScores = async (name) => {
-    await supabase.from('scores').delete().eq('name', name);
-  };
-  const removeGameScores = async (game) => {
-    await supabase.from('scores').delete().eq('game', game);
+  const removeHighlight = async (h) => {
+    await removeHighlightFile(h.path);
+    return write(() => supabase.from('highlights').delete().eq('id', h.id));
   };
 
-  // --- Highlights ---
-  const addHighlight = async (eventId, fileInfo) => {
-    await supabase.from('highlights').insert([{ eventId, ...fileInfo }]);
-  };
-
-  const removeHighlight = async (id) => {
-    await supabase.from('highlights').delete().eq('id', id);
-  };
-
-  // --- RSVPs ---
-  const addRsvp = async (rsvp) => {
-    await supabase.from('event_rsvps').insert([rsvp]);
-  };
-
-  // --- Auth ---
-  const login = (pwd) => {
-    if (pwd === 'admin123') { setIsAdmin(true); return true; }
-    return false;
-  };
-  const logout = () => setIsAdmin(false);
+  // ---- RSVPs ----
+  const addRsvp = (rsvp) => write(() => supabase.from('event_rsvps').insert([rsvp]).select());
 
   return (
     <AdminContext.Provider value={{
-      isAdmin, login, logout,
+      isAdmin, authReady, backendOk, login, logout,
       events, addEvent, updateEvent, removeEvent,
-      bibleStudies, addStudy, removeStudy,
-      scores, updateWin, removeScoreEntry, removePlayerScores, removeGameScores,
+      bibleStudies: studies, addStudy, updateStudy, removeStudy,
+      leaders, addLeader, updateLeader, removeLeader,
+      scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
-      rsvps, addRsvp
+      rsvps, addRsvp,
     }}>
       {children}
     </AdminContext.Provider>

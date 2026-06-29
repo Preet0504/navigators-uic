@@ -1,27 +1,38 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
+import BrandLogo from './BrandLogo';
+import Pattern from './Pattern';
 
 export default function Footer() {
   return (
-    <footer style={{
-      background: 'var(--mc-stone)',
-      borderTop: '8px solid var(--mc-border)',
-      padding: '2rem 0',
-      color: '#000',
-      fontFamily: "'VT323', monospace",
-      fontSize: '1.2rem'
-    }}>
-      <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+    <footer style={{ position: 'relative', background: 'var(--teal-darker)', color: '#dfeceb', overflow: 'hidden' }}>
+      <Pattern variant="connection" color="#ffffff" opacity={0.05} />
+      <div className="container" style={{ position: 'relative', padding: '3.5rem 1.5rem 2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '2.5rem' }}>
         <div>
-          <h3 style={{ fontFamily: "'Press Start 2P'", color: 'var(--mc-green)', textShadow: '2px 2px 0px #000', marginBottom: '0.5rem' }}>UIC NAVIGATORS</h3>
-          <p>Connecting cultures at UIC.</p>
+          <BrandLogo size={40} light />
+          <p style={{ marginTop: '1rem', maxWidth: '30ch', color: '#bcd6d4', fontSize: '0.95rem' }}>
+            Find your people. A community of students growing in faith and friendship at the University of Illinois Chicago.
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '2rem' }}>
-          <span>IG: @uicnavigators</span>
-          <span>contact@uicnavigators.org</span>
-        </div>
+
         <div>
-          &copy; {new Date().getFullYear()}
+          <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>Explore</h4>
+          {[['Home', '/'], ['Events', '/events'], ['Bible Studies', '/bible-studies'], ['Cold Brew', '/cold-brew'], ['People', '/people']].map(([label, to]) => (
+            <Link key={to} to={to} style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>{label}</Link>
+          ))}
         </div>
+
+        <div>
+          <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>Connect</h4>
+          <a href="https://instagram.com/uicnavigators" target="_blank" rel="noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>Instagram @uicnavigators</a>
+          <a href="mailto:contact@uicnavigators.org" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>contact@uicnavigators.org</a>
+          <p style={{ color: '#9fc0bd', fontSize: '0.85rem', marginTop: '0.6rem' }}>University of Illinois Chicago</p>
+        </div>
+      </div>
+
+      <div className="container" style={{ position: 'relative', borderTop: '1px solid rgba(255,255,255,0.12)', padding: '1.2rem 1.5rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.82rem', color: '#9fc0bd' }}>
+        <span>&copy; {new Date().getFullYear()} UIC Navigators. All rights reserved.</span>
+        <span>Navigator Teal &amp; Gold · built with care</span>
       </div>
     </footer>
   );

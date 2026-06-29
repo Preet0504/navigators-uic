@@ -1,454 +1,325 @@
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { useToast } from '../components/Toast';
+import { useReveal } from '../hooks/useReveal';
+import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
+import { uploadImage } from '../lib/supabase';
+import Pattern from '../components/Pattern';
 
-const Countdown = ({ targetDate }) => {
-  const [timeLeft, setTimeLeft] = useState(null);
+const PAGE_SIZE = 9;
+const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', description: '', image: '/sample-event.png' };
 
+function Countdown({ targetDate }) {
+  const [t, setT] = useState(null);
   useEffect(() => {
-    const timer = setInterval(() => {
-      const diff = new Date(targetDate) - new Date();
+    const tick = () => {
+      const diff = (parseDate(targetDate)?.getTime() || 0) - Date.now();
       if (diff > 0) {
-        setTimeLeft({
-          days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-          hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-          minutes: Math.floor((diff / 1000 / 60) % 60),
-          seconds: Math.floor((diff / 1000) % 60)
+        setT({
+          d: Math.floor(diff / 86400000),
+          h: Math.floor((diff / 3600000) % 24),
+          m: Math.floor((diff / 60000) % 60),
+          s: Math.floor((diff / 1000) % 60),
         });
-      } else {
-        setTimeLeft(null);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
+      } else setT(null);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, [targetDate]);
-
-  if (!timeLeft) return null;
-
-  return (
-    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', color: '#00D1FF' }}>
-      <div style={{ background: 'rgba(0,209,255,0.1)', padding: '0.5rem', borderRadius: '4px', textAlign: 'center', flex: 1 }}><b>{timeLeft.days}</b><div style={{ fontSize: '0.6rem' }}>DAYS</div></div>
-      <div style={{ background: 'rgba(0,209,255,0.1)', padding: '0.5rem', borderRadius: '4px', textAlign: 'center', flex: 1 }}><b>{timeLeft.hours}</b><div style={{ fontSize: '0.6rem' }}>HRS</div></div>
-      <div style={{ background: 'rgba(0,209,255,0.1)', padding: '0.5rem', borderRadius: '4px', textAlign: 'center', flex: 1 }}><b>{timeLeft.minutes}</b><div style={{ fontSize: '0.6rem' }}>MIN</div></div>
-      <div style={{ background: 'rgba(0,209,255,0.1)', padding: '0.5rem', borderRadius: '4px', textAlign: 'center', flex: 1 }}><b>{timeLeft.seconds}</b><div style={{ fontSize: '0.6rem' }}>SEC</div></div>
+  if (!t) return null;
+  const cell = (v, l) => (
+    <div style={{ flex: 1, textAlign: 'center', background: 'rgba(0,140,149,0.08)', borderRadius: 8, padding: '0.5rem 0' }}>
+      <b style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', color: 'var(--teal-dark)' }}>{v}</b>
+      <div style={{ fontSize: '0.6rem', letterSpacing: '0.1em', color: 'var(--text-muted)' }}>{l}</div>
     </div>
   );
-};
+  return <div style={{ display: 'flex', gap: '0.4rem', marginTop: '1rem' }}>{cell(t.d, 'DAYS')}{cell(t.h, 'HRS')}{cell(t.m, 'MIN')}{cell(t.s, 'SEC')}</div>;
+}
 
 export default function Events() {
   const { events, addEvent, updateEvent, removeEvent, isAdmin, highlights, addHighlight, removeHighlight, rsvps, addRsvp } = useAdmin();
-  const [showAdd, setShowAdd] = useState(false);
-  const [editEventId, setEditEventId] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [viewRsvpsEvent, setViewRsvpsEvent] = useState(null);
+  const toast = useToast();
 
-  const [newEv, setNewEv] = useState({ title: '', date: '', address: '', rsvpUrl: '', description: '', image: '/sample-event.png' });
-  const [rsvpModal, setRsvpModal] = useState(null);
-  const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No' });
-  const [localRsvps, setLocalRsvps] = useState({});
-  const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming' | 'completed'
+  const [tab, setTab] = useState('upcoming');
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState(EMPTY_EVENT);
+  const [saving, setSaving] = useState(false);
+  const [visible, setVisible] = useState(PAGE_SIZE);
+
+  const [reelEvent, setReelEvent] = useState(null);
+  const [rsvpEvent, setRsvpEvent] = useState(null);
+  const [viewRsvps, setViewRsvps] = useState(null);
+  const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No, just me' });
+  const [myRsvps, setMyRsvps] = useState({});
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('nav_rsvps');
-    if (saved) setLocalRsvps(JSON.parse(saved));
+    try { setMyRsvps(JSON.parse(localStorage.getItem('nav_rsvps') || '{}')); } catch { /* ignore */ }
   }, []);
 
-  const handleFileUpload = (eventId, e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const isVideo = file.type.startsWith('video/');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      addHighlight(eventId, { type: isVideo ? 'video' : 'dataUrl', dataUrl: ev.target.result });
-    };
-    reader.readAsDataURL(file);
-  };
+  const filtered = events.filter((e) => (tab === 'upcoming' ? isUpcoming(e.date) : !isUpcoming(e.date)))
+    .sort((a, b) => {
+      const ta = parseDate(a.date)?.getTime() || 0, tb = parseDate(b.date)?.getTime() || 0;
+      return tab === 'upcoming' ? ta - tb : tb - ta;
+    });
+  const shown = filtered.slice(0, visible);
+  const ref = useReveal([tab, shown.length]);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setNewEv({ ...newEv, image: ev.target.result });
-    };
-    reader.readAsDataURL(file);
-  };
+  useEffect(() => setVisible(PAGE_SIZE), [tab]);
 
-  const starsCode = Array.from({ length: 100 }).map((_, i) => `${Math.random() * 99}vw ${Math.random() * 99}vh #FFF`).join(', ');
+  const resetForm = () => { setShowForm(false); setEditId(null); setDraft(EMPTY_EVENT); };
 
-  const handleSaveEvent = (e) => {
+  const saveEvent = async (e) => {
     e.preventDefault();
-    if (newEv.title) {
-      if (editEventId) {
-        updateEvent(editEventId, { ...newEv });
-      } else {
-        addEvent({ ...newEv });
-      }
-      handleCancelEdit();
-    }
+    if (!draft.title.trim()) return;
+    setSaving(true);
+    const res = editId ? await updateEvent(editId, draft) : await addEvent(draft);
+    setSaving(false);
+    if (res.error) return toast(res.error, 'error');
+    toast(editId ? 'Event updated' : 'Event published ✦', 'success');
+    resetForm();
   };
 
-  const handleEditClick = (e, ev) => {
+  const startEdit = (e, ev) => {
     e.stopPropagation();
-    setNewEv(ev);
-    setEditEventId(ev.id);
-    setShowAdd(true);
+    if (ev._seed) return toast('Demo event — add your own to manage it', 'gold');
+    setDraft({ ...EMPTY_EVENT, ...ev });
+    setEditId(ev.id);
+    setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleCancelEdit = () => {
-    setShowAdd(false);
-    setEditEventId(null);
-    setNewEv({ title: '', date: '', address: '', rsvpUrl: '', description: '', image: '/sample-event.png' });
+  const del = async (e, ev) => {
+    e.stopPropagation();
+    if (ev._seed) return toast('Demo event — nothing to delete yet', 'gold');
+    if (!confirm(`Delete "${ev.title}"? This can’t be undone.`)) return;
+    const res = await removeEvent(ev.id);
+    res.error ? toast(res.error, 'error') : toast('Event deleted');
   };
 
-  const handleRsvpSubmit = (e) => {
+  const onCover = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadImage(file, 'covers');
+      setDraft((d) => ({ ...d, image: url }));
+      toast('Cover uploaded', 'success');
+    } catch (err) {
+      toast(err.message || 'Upload failed', 'error');
+    } finally { setUploading(false); }
+  };
+
+  const onReelUpload = async (eventId, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (reelEvent?._seed) return toast('Demo event — add a real one to upload highlights', 'gold');
+    setUploading(true);
+    const res = await addHighlight(eventId, file);
+    setUploading(false);
+    res.error ? toast(res.error, 'error') : toast('Highlight added ✦', 'success');
+  };
+
+  const submitRsvp = async (e) => {
     e.preventDefault();
-
-    // Save to Database for Admin visibility
+    if (rsvpEvent?._seed) { setRsvpEvent(null); return toast('This is a demo event — RSVP opens once real events are added', 'gold'); }
     const payload = {
-      event_id: rsvpModal.id,
-      first_name: rsvpData.firstName,
-      last_name: rsvpData.lastName,
-      birthdate: rsvpData.birthdate,
-      bringing_guests: rsvpData.bringingGuests
+      event_id: rsvpEvent.id, first_name: rsvpData.firstName, last_name: rsvpData.lastName,
+      birthdate: rsvpData.birthdate, bringing_guests: rsvpData.bringingGuests,
     };
-    addRsvp(payload);
-
-    // Save locally for User feedback
-    const updated = { ...localRsvps, [rsvpModal.id]: true };
-    setLocalRsvps(updated);
+    const res = await addRsvp(payload);
+    if (res.error) return toast(res.error, 'error');
+    const updated = { ...myRsvps, [rsvpEvent.id]: true };
+    setMyRsvps(updated);
     localStorage.setItem('nav_rsvps', JSON.stringify(updated));
-
-    setRsvpModal(null);
-    setRsvpData({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No' });
+    setRsvpEvent(null);
+    setRsvpData({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No, just me' });
+    toast('You’re on the list — see you there! 🎉', 'success');
   };
 
-  const exportRsvpsCsv = () => {
-    const data = rsvps.filter(r => r.event_id === viewRsvpsEvent.id);
-    if (data.length === 0) return alert('No data to export');
-    const csv = "First Name,Last Name,Birthdate,Guests\n" + data.map(r => `"${r.first_name}","${r.last_name}","${r.birthdate}","${r.bringing_guests}"`).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
+  const exportCsv = () => {
+    const data = rsvps.filter((r) => r.event_id === viewRsvps.id);
+    if (!data.length) return toast('No RSVPs to export yet', 'gold');
+    const csv = 'First Name,Last Name,Birthdate,Guests\n' + data.map((r) => `"${r.first_name}","${r.last_name}","${r.birthdate}","${r.bringing_guests}"`).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `${viewRsvpsEvent.title}_RSVPs.csv`);
-    a.click();
+    a.href = url; a.download = `${viewRsvps.title}-rsvps.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <>
-      <style>{`
-        .space-bg {
-          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-          background: #0B0B1A;
-          z-index: -1;
-        }
-        .stars {
-          width: 2px; height: 2px;
-          background: transparent;
-          box-shadow: ${starsCode};
-          animation: twinkle 4s linear infinite;
-        }
-        @keyframes twinkle {
-          50% { opacity: 0.3; }
-        }
-        .space-container {
-          padding: 5rem 2rem 2rem;
-          color: white;
-          font-family: 'Space Grotesk', sans-serif;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-        .space-card {
-          background: rgba(255,255,255,0.03);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 16px;
-          overflow: hidden;
-          transition: 0.3s;
-          position: relative;
-        }
-        .space-card:hover {
-          background: rgba(255,255,255,0.06);
-          border-color: rgba(255,255,255,0.3);
-          transform: translateY(-5px);
-          box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        }
-        .nebula-glow {
-          position: absolute;
-          width: 200px; height: 200px;
-          background: rgba(100, 50, 255, 0.5);
-          filter: blur(100px);
-          border-radius: 50%;
-          top: -100px; left: -100px;
-          z-index: 0;
-          pointer-events: none;
-        }
-        .modal-overlay {
-          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0, 0, 0, 0.9);
-          z-index: 2000;
-          display: flex; justify-content: center; align-items: flex-start;
-          overflow-y: auto;
-          animation: fadeIn 0.3s ease-out forwards;
-        }
-        .modal-content {
-          width: 100%; max-width: 500px;
-          min-height: 100vh;
-          background: #0B0B1A;
-          position: relative;
-          padding-bottom: 2rem;
-          animation: slideUp 0.4s ease-out forwards;
-        }
-        .reel-post {
-          width: 100%; height: 80vh;
-          margin-bottom: 2rem;
-          background: #000;
-          position: relative;
-        }
-        .rsvp-form {
-          min-height: auto;
-          padding: 2rem;
-          border-radius: 16px;
-          margin-top: 10vh;
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-        .form-input {
-          width: 100%; padding: 1rem; background: rgba(0,0,0,0.5); border: 1px solid #555; color: white; margin-bottom: 1rem; border-radius: 8px; font-family: 'Space Grotesk';
-        }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideUp { from { transform: translateY(50px); } to { transform: translateY(0); } }
-      `}</style>
+    <div className="page" ref={ref}>
+      <div className="container">
+        {/* Header */}
+        <header style={{ position: 'relative', borderRadius: 'var(--r-lg)', overflow: 'hidden', background: 'linear-gradient(120deg, var(--teal) 0%, var(--teal-darker) 100%)', color: '#fff', padding: 'clamp(2.5rem,5vw,3.5rem)', marginBottom: '2.5rem' }}>
+          <Pattern variant="movement" color="#ffffff" opacity={0.08} />
+          <div style={{ position: 'relative', zIndex: 2 }}>
+            <span className="eyebrow" style={{ color: '#fff' }}>Gather with us</span>
+            <h1 style={{ color: '#fff', fontSize: 'clamp(2.2rem,5vw,3.4rem)', margin: '0.4rem 0' }}>Events &amp; Meetups</h1>
+            <p style={{ color: '#d3eceb', maxWidth: '50ch' }}>From bonfires to retreats to random Tuesday hangs — here’s everything coming up. RSVP in seconds.</p>
+            {isAdmin && (
+              <button className="btn btn-gold" style={{ marginTop: '1.4rem' }} onClick={() => (showForm ? resetForm() : setShowForm(true))}>
+                {showForm ? 'Close form' : '+ New event'}
+              </button>
+            )}
+          </div>
+        </header>
 
-      <div className="space-bg"><div className="stars"></div></div>
-
-      <div className="space-container">
-        <div style={{ textAlign: 'center', marginBottom: '4rem', position: 'relative' }}>
-          <div className="nebula-glow" style={{ top: '0', left: '50%', transform: 'translateX(-50%)', width: '300px', height: '300px' }}></div>
-          <h1 style={{ fontSize: '4rem', fontWeight: 700, letterSpacing: '4px', textTransform: 'uppercase', textShadow: '0 0 20px rgba(255,255,255,0.5)', position: 'relative', zIndex: 1 }}>
-            Constellations
-          </h1>
-          <p style={{ color: '#aaa', fontSize: '1.2rem', letterSpacing: '1px' }}>Events & Meetups in the Cosmos</p>
-          {isAdmin && (
-            <button onClick={showAdd ? handleCancelEdit : () => setShowAdd(true)} style={{ marginTop: '1rem', background: 'white', color: 'black', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer', border: 'none', fontWeight: 700 }}>
-              {showAdd ? 'CANCEL' : 'ADD NEW STAR'}
-            </button>
-          )}
-        </div>
-
-        {showAdd && isAdmin && (
-          <form className="space-card" style={{ padding: '2rem', marginBottom: '3rem' }} onSubmit={handleSaveEvent}>
-            <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>{editEventId ? 'Edit Event' : 'Create New Event'}</h2>
-            <input placeholder="Event Constellation Title..." value={newEv.title} onChange={e => setNewEv({ ...newEv, title: e.target.value })} required className="form-input" />
-            <label style={{ display: 'block', color: '#aaa', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Event Date & Time (Click the calendar icon)</label>
-            <input type="datetime-local" value={newEv.date} onChange={e => setNewEv({ ...newEv, date: e.target.value })} required className="form-input" />
-            <label style={{ display: 'block', color: '#aaa', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Event Cover Image (Optional)</label>
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="form-input" />
-            <input placeholder="Event Address (For Maps Location)" value={newEv.address || ''} onChange={e => setNewEv({ ...newEv, address: e.target.value })} className="form-input" />
-            <input placeholder="Custom RSVP URL (Optional e.g. Google Form link)" value={newEv.rsvpUrl || ''} onChange={e => setNewEv({ ...newEv, rsvpUrl: e.target.value })} className="form-input" />
-            <textarea placeholder="Description of the coordinates..." value={newEv.description} onChange={e => setNewEv({ ...newEv, description: e.target.value })} className="form-input" style={{ minHeight: '100px' }} />
-            <button type="submit" style={{ background: 'white', color: 'black', padding: '1rem 2rem', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', width: '100%' }}>
-              {editEventId ? 'SAVE CHANGES' : 'IGNITE EVENT'}
-            </button>
+        {/* Admin form */}
+        {showForm && isAdmin && (
+          <form className="card pop-in" style={{ padding: '1.8rem', marginBottom: '2.5rem' }} onSubmit={saveEvent}>
+            <h2 style={{ marginBottom: '1.2rem' }}>{editId ? 'Edit event' : 'Create a new event'}</h2>
+            <div className="field"><label>Title</label><input className="input" placeholder="Welcome Week Bonfire" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required /></div>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div className="field" style={{ flex: '1 1 220px' }}><label>Date &amp; time</label><input className="input" type="datetime-local" value={draft.date?.length === 24 ? draft.date.slice(0, 16) : draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} required /></div>
+              <div className="field" style={{ flex: '1 1 220px' }}><label>Location (for map link)</label><input className="input" placeholder="Montrose Beach, Chicago" value={draft.address || ''} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></div>
+            </div>
+            <div className="field"><label>Cover image</label><input className="input" type="file" accept="image/*" onChange={onCover} />{uploading && <span className="muted" style={{ fontSize: '0.8rem' }}>Uploading…</span>}</div>
+            <div className="field"><label>Custom RSVP link (optional — e.g. a Google Form)</label><input className="input" placeholder="https://forms.gle/…" value={draft.rsvp_url || ''} onChange={(e) => setDraft({ ...draft, rsvp_url: e.target.value })} /></div>
+            <div className="field"><label>Description</label><textarea className="textarea" placeholder="What’s the vibe? What should people bring?" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></div>
+            <div style={{ display: 'flex', gap: '0.8rem' }}>
+              <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving…' : editId ? 'Save changes' : 'Publish event'}</button>
+              <button type="button" className="btn btn-ghost" onClick={resetForm}>Cancel</button>
+            </div>
           </form>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', marginBottom: '3rem', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-          <button
-            onClick={() => setActiveTab('upcoming')}
-            style={{ background: 'transparent', color: activeTab === 'upcoming' ? '#00D1FF' : 'white', border: 'none', borderBottom: activeTab === 'upcoming' ? '3px solid #00D1FF' : '3px solid transparent', padding: '1rem 2rem', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>
-            UPCOMING EVENTS
-          </button>
-          <button
-            onClick={() => setActiveTab('completed')}
-            style={{ background: 'transparent', color: activeTab === 'completed' ? '#00D1FF' : 'white', border: 'none', borderBottom: activeTab === 'completed' ? '3px solid #00D1FF' : '3px solid transparent', padding: '1rem 2rem', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>
-            COMPLETED EVENTS
-          </button>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', borderBottom: '1px solid var(--border)' }}>
+          {['upcoming', 'completed'].map((t) => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '0.8rem 1.1rem', fontSize: '1rem', fontWeight: 700, textTransform: 'capitalize',
+              color: tab === t ? 'var(--teal)' : 'var(--text-muted)', borderBottom: `3px solid ${tab === t ? 'var(--gold)' : 'transparent'}`, marginBottom: -1,
+            }}>{t}</button>
+          ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
-          {events.filter((ev) => {
-            const eventDate = new Date(ev.date);
-            const isUpcoming = isNaN(eventDate.getTime()) ? true : eventDate > new Date();
-            return activeTab === 'upcoming' ? isUpcoming : !isUpcoming;
-          }).map((ev) => {
-            const eventDate = new Date(ev.date);
-            const isUpcoming = isNaN(eventDate.getTime()) ? true : eventDate > new Date();
-
+        {/* Grid */}
+        <div className="grid grid-auto">
+          {shown.map((ev) => {
+            const upcoming = isUpcoming(ev.date);
+            const d = formatDay(ev.date);
             return (
-              <div key={ev.id} className="space-card" onClick={() => { if (!isUpcoming) setSelectedEvent(ev); }} style={{ cursor: isUpcoming ? 'default' : 'pointer' }}>
+              <article key={ev.id} className={`card ${!upcoming ? 'card-hover' : ''} admin-zone reveal`} style={{ cursor: !upcoming ? 'pointer' : 'default', display: 'flex', flexDirection: 'column' }} onClick={() => { if (!upcoming) setReelEvent(ev); }}>
                 {isAdmin && (
-                  <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '0.5rem', zIndex: 10 }}>
-                    <button onClick={(e) => { e.stopPropagation(); setViewRsvpsEvent(ev); }} style={{ background: 'rgba(0,209,255,0.8)', border: 'none', color: 'black', padding: '0.4rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.7rem' }}>👀 RSVPs</button>
-                    <button onClick={(e) => handleEditClick(e, ev)} style={{ background: 'rgba(255,165,0,0.8)', border: 'none', color: 'black', padding: '0.4rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.7rem' }}>✏️ Edit</button>
-                    <button onClick={(e) => { e.stopPropagation(); removeEvent(ev.id); }} style={{ background: 'rgba(255,0,0,0.5)', border: 'none', color: 'white', padding: '0.4rem 0.6rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.7rem' }}>✖ Del</button>
+                  <div className="admin-actions">
+                    <button className="btn btn-sm" style={{ background: 'var(--blue)' }} onClick={(e) => { e.stopPropagation(); setViewRsvps(ev); }} title="View RSVPs">RSVPs</button>
+                    <button className="btn btn-sm btn-gold" onClick={(e) => startEdit(e, ev)} title="Edit">Edit</button>
+                    <button className="btn btn-sm btn-danger" onClick={(e) => del(e, ev)} title="Delete">✕</button>
                   </div>
                 )}
-                <img src={ev.image} style={{ width: '100%', height: '200px', objectFit: 'cover', opacity: 0.8 }} alt={ev.title} />
-                <div style={{ padding: '2rem', position: 'relative' }}>
-                  {ev.address && (
-                    <a href={`https://maps.google.com/?q=${encodeURIComponent(ev.address)}`} target="_blank" rel="noreferrer"
-                      style={{ color: '#FF9040', fontSize: '0.9rem', display: 'inline-block', marginBottom: '0.5rem', fontWeight: 'bold' }}
-                      onClick={e => e.stopPropagation()}>
-                      📍 Map: {ev.address}
-                    </a>
-                  )}
-
-                  <div style={{ color: '#00D1FF', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                    {isNaN(eventDate.getTime()) ? ev.date : eventDate.toLocaleString()}
+                <div style={{ position: 'relative' }}>
+                  <img src={ev.image || '/sample-event.png'} alt={ev.title} style={{ width: '100%', height: 180, objectFit: 'cover' }} loading="lazy" />
+                  <div style={{ position: 'absolute', left: 12, bottom: -22, width: 56, textAlign: 'center', background: '#fff', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: '0.4rem 0' }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, color: 'var(--teal)', lineHeight: 1 }}>{d.day}</div>
+                    <div style={{ fontSize: '0.6rem', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>{d.month}</div>
                   </div>
-                  <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', fontWeight: 400 }}>{ev.title}</h2>
-                  <p style={{ color: '#aaa', lineHeight: 1.6, fontSize: '0.9rem' }}>{ev.description}</p>
-
-                  {isUpcoming ? (
+                </div>
+                <div style={{ padding: '1.6rem 1.4rem 1.4rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  {ev.address && (
+                    <a href={`https://maps.google.com/?q=${encodeURIComponent(ev.address)}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--orange)', marginBottom: '0.4rem', display: 'inline-block' }}>📍 {ev.address}</a>
+                  )}
+                  <div className="badge" style={{ marginBottom: '0.5rem' }}>{formatDate(ev.date)}</div>
+                  <h3 style={{ fontSize: '1.35rem', marginBottom: '0.4rem' }}>{ev.title}</h3>
+                  <p className="muted" style={{ fontSize: '0.9rem', flex: 1 }}>{ev.description}</p>
+                  {upcoming ? (
                     <>
                       <Countdown targetDate={ev.date} />
-                      {localRsvps[ev.id] ? (
-                        <div style={{ marginTop: '1.5rem', background: 'rgba(89, 165, 51, 0.2)', color: '#59A533', padding: '0.5rem', borderRadius: '4px', textAlign: 'center', fontWeight: 'bold' }}>
-                          ✓ YOU ARE RSVP'd
-                        </div>
+                      {myRsvps[ev.id] ? (
+                        <div className="badge" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ You’re RSVP’d</div>
                       ) : (
-                        <button onClick={(e) => {
-                          e.stopPropagation();
-                          if (ev.rsvpUrl) window.open(ev.rsvpUrl, '_blank');
-                          else setRsvpModal(ev);
-                        }} style={{ marginTop: '1.5rem', width: '100%', background: '#00D1FF', color: 'black', padding: '0.8rem', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '1px' }}>
-                          RSVP NOW
-                        </button>
+                        <button className="btn" style={{ marginTop: '1rem', width: '100%' }} onClick={(e) => { e.stopPropagation(); ev.rsvp_url ? window.open(ev.rsvp_url, '_blank') : setRsvpEvent(ev); }}>RSVP now</button>
                       )}
                     </>
                   ) : (
-                    <div style={{ marginTop: '1.5rem', color: '#888', fontStyle: 'italic', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
-                      ▶ Event Complete. Click to view Highlights.
-                    </div>
+                    <div style={{ marginTop: '1rem', paddingTop: '0.9rem', borderTop: '1px solid var(--border)', textAlign: 'center', color: 'var(--teal)', fontWeight: 600, fontSize: '0.9rem' }}>▶ View highlights</div>
                   )}
                 </div>
-              </div>
+              </article>
             );
           })}
-          {events.length === 0 && <p>No constellations discovered.</p>}
         </div>
+
+        {shown.length === 0 && (
+          <div className="empty-state card"><p>{tab === 'upcoming' ? 'No upcoming events yet — check back soon!' : 'No past events to show yet.'}</p></div>
+        )}
+        {visible < filtered.length && (
+          <div className="center" style={{ marginTop: '2rem' }}>
+            <button className="btn btn-ghost" onClick={() => setVisible((v) => v + PAGE_SIZE)}>Load more</button>
+          </div>
+        )}
       </div>
 
-      {/* Internal RSVP Modal */}
-      {rsvpModal && (
-        <div className="modal-overlay" onClick={() => setRsvpModal(null)}>
-          <form className="modal-content rsvp-form" onClick={e => e.stopPropagation()} onSubmit={handleRsvpSubmit} style={{ maxWidth: '400px' }}>
-            <h2 style={{ color: 'white', marginBottom: '2rem', fontFamily: "'Space Grotesk'", fontSize: '1.8rem' }}>RSVP: {rsvpModal.title}</h2>
-
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <input placeholder="First Name" required value={rsvpData.firstName} onChange={e => setRsvpData({ ...rsvpData, firstName: e.target.value })} className="form-input" style={{ flex: 1 }} />
-              <input placeholder="Last Name" required value={rsvpData.lastName} onChange={e => setRsvpData({ ...rsvpData, lastName: e.target.value })} className="form-input" style={{ flex: 1 }} />
-            </div>
-
-            <label style={{ color: '#aaa', display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Birthdate</label>
-            <input type="date" required value={rsvpData.birthdate} onChange={e => setRsvpData({ ...rsvpData, birthdate: e.target.value })} className="form-input" />
-
-            <label style={{ color: '#aaa', display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Is anyone else coming with you?</label>
-            <select value={rsvpData.bringingGuests} onChange={e => setRsvpData({ ...rsvpData, bringingGuests: e.target.value })} className="form-input" style={{ appearance: 'auto' }}>
-              <option>No, just me</option>
-              <option>Yes, 1 guest</option>
-              <option>Yes, 2 guests</option>
-              <option>Yes, 3+ guests</option>
-            </select>
-
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-              <button type="button" onClick={() => setRsvpModal(null)} style={{ flex: 1, padding: '1rem', background: 'transparent', border: '1px solid #555', color: 'white', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
-              <button type="submit" style={{ flex: 2, padding: '1rem', background: '#00D1FF', color: 'black', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Confirm RSVP</button>
+      {/* RSVP modal */}
+      {rsvpEvent && (
+        <div className="modal-overlay" onMouseDown={() => setRsvpEvent(null)}>
+          <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submitRsvp}>
+            <div className="modal-head"><h2>RSVP — {rsvpEvent.title}</h2><button type="button" className="icon-btn" onClick={() => setRsvpEvent(null)}>✕</button></div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div className="field" style={{ flex: '1 1 140px' }}><label>First name</label><input className="input" required value={rsvpData.firstName} onChange={(e) => setRsvpData({ ...rsvpData, firstName: e.target.value })} /></div>
+                <div className="field" style={{ flex: '1 1 140px' }}><label>Last name</label><input className="input" required value={rsvpData.lastName} onChange={(e) => setRsvpData({ ...rsvpData, lastName: e.target.value })} /></div>
+              </div>
+              <div className="field"><label>Birthdate <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(so we can celebrate you 🎂)</span></label><input className="input" type="date" required value={rsvpData.birthdate} onChange={(e) => setRsvpData({ ...rsvpData, birthdate: e.target.value })} /></div>
+              <div className="field"><label>Bringing anyone?</label><select className="select" value={rsvpData.bringingGuests} onChange={(e) => setRsvpData({ ...rsvpData, bringingGuests: e.target.value })}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
+              <button type="submit" className="btn" style={{ width: '100%' }}>Confirm RSVP</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Admin View RSVPs Modal */}
-      {viewRsvpsEvent && (
-        <div className="modal-overlay" onClick={() => setViewRsvpsEvent(null)}>
-          <div className="modal-content rsvp-form" onClick={e => e.stopPropagation()} style={{ padding: '2rem', maxWidth: '700px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ color: 'white', margin: 0, fontFamily: "'Space Grotesk'" }}>RSVPs: {viewRsvpsEvent.title}</h2>
-              <button onClick={() => setViewRsvpsEvent(null)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '2rem', cursor: 'pointer', lineHeight: '1' }}>&times;</button>
-            </div>
-
-            <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: '8px', padding: '1rem', border: '1px solid rgba(255,255,255,0.1)', overflowX: 'auto', maxHeight: '50vh', overflowY: 'auto' }}>
-              <table style={{ width: '100%', color: 'white', textAlign: 'left', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                    <th style={{ padding: '0.5rem', fontWeight: 'bold' }}>First Name</th>
-                    <th style={{ padding: '0.5rem', fontWeight: 'bold' }}>Last Name</th>
-                    <th style={{ padding: '0.5rem', fontWeight: 'bold' }}>Birthdate</th>
-                    <th style={{ padding: '0.5rem', fontWeight: 'bold' }}>Guests</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rsvps.filter(r => r.event_id === viewRsvpsEvent.id).map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '0.5rem' }}>{r.first_name}</td>
-                      <td style={{ padding: '0.5rem' }}>{r.last_name}</td>
-                      <td style={{ padding: '0.5rem', color: '#aaa' }}>{r.birthdate}</td>
-                      <td style={{ padding: '0.5rem' }}>{r.bringing_guests}</td>
-                    </tr>
-                  ))}
-                  {rsvps.filter(r => r.event_id === viewRsvpsEvent.id).length === 0 && (
-                    <tr>
-                      <td colSpan="4" style={{ padding: '2rem', textAlign: 'center', color: '#aaa' }}>No one has RSVP'd yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ marginTop: '1.5rem', textAlign: 'right' }}>
-              <button onClick={exportRsvpsCsv} style={{ padding: '0.8rem 1.5rem', background: '#00D1FF', color: 'black', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
-                ⬇ Export to CSV
-              </button>
+      {/* Admin: view RSVPs */}
+      {viewRsvps && (
+        <div className="modal-overlay" onMouseDown={() => setViewRsvps(null)}>
+          <div className="modal" style={{ maxWidth: 680 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>RSVPs — {viewRsvps.title}</h2><button className="icon-btn" onClick={() => setViewRsvps(null)}>✕</button></div>
+            <div className="modal-body">
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Birthdate', 'Guests'].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {rsvps.filter((r) => r.event_id === viewRsvps.id).map((r) => (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}><td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td><td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td><td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.birthdate}</td><td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td></tr>
+                    ))}
+                    {rsvps.filter((r) => r.event_id === viewRsvps.id).length === 0 && <tr><td colSpan="4" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="center" style={{ marginTop: '1.2rem' }}><button className="btn btn-gold" onClick={exportCsv}>⬇ Export CSV</button></div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Highlights Modal */}
-      {selectedEvent && (
-        <div className="modal-overlay" onClick={() => setSelectedEvent(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div style={{ position: 'sticky', top: 0, background: 'rgba(11, 11, 26, 0.9)', backdropFilter: 'blur(10px)', padding: '1rem 2rem', zIndex: 100, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              <h2 style={{ fontSize: '1.2rem', margin: 0, color: 'white', fontFamily: "'Space Grotesk', sans-serif" }}>
-                {selectedEvent.title} REELS
-              </h2>
-              <button onClick={() => setSelectedEvent(null)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '2rem', cursor: 'pointer', lineHeight: '1' }}>&times;</button>
-            </div>
-
-            <div style={{ padding: '1rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+      {/* Highlights / reels */}
+      {reelEvent && (
+        <div className="modal-overlay" onMouseDown={() => setReelEvent(null)}>
+          <div className="modal" style={{ maxWidth: 560 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>{reelEvent.title} — highlights</h2><button className="icon-btn" onClick={() => setReelEvent(null)}>✕</button></div>
+            <div className="modal-body">
               {isAdmin && (
-                <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
-                  <label style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.05)', padding: '1rem 2rem', border: '2px dashed rgba(255,255,255,0.3)', borderRadius: '8px', fontSize: '1rem', display: 'block', color: 'white', transition: '0.2s' }}>
-                    + Upload Reel/Post
-                    <input type="file" accept="image/*,video/*" onChange={(e) => handleFileUpload(selectedEvent.id, e)} style={{ display: 'none' }} />
-                  </label>
-                </div>
+                <label className="card" style={{ display: 'block', textAlign: 'center', padding: '1.2rem', border: '2px dashed var(--border)', cursor: 'pointer', marginBottom: '1.4rem', background: 'var(--paper)' }}>
+                  {uploading ? 'Uploading…' : '+ Upload photo or video'}
+                  <input type="file" accept="image/*,video/*" hidden onChange={(e) => onReelUpload(reelEvent.id, e)} />
+                </label>
               )}
-
-              {highlights && highlights.filter(h => h.eventId === selectedEvent.id).map(h => (
-                <div key={h.id} className="reel-post">
-                  {isAdmin && (
-                    <button onClick={() => removeHighlight(h.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(255,0,0,0.8)', border: 'none', color: 'white', padding: '0.5rem 0.8rem', fontSize: '0.8rem', borderRadius: '4px', cursor: 'pointer', zIndex: 10 }}>
-                      Delete
-                    </button>
-                  )}
-                  {h.type === 'video' ? (
-                    <video src={h.dataUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} autoPlay loop muted playsInline controls />
-                  ) : (
-                    <img src={h.dataUrl} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#05050A' }} alt="Highlight" />
-                  )}
+              {highlights.filter((h) => h.event_id === reelEvent.id).map((h) => (
+                <div key={h.id} className="admin-zone" style={{ marginBottom: '1rem', borderRadius: 'var(--r-md)', overflow: 'hidden', background: '#000' }}>
+                  {isAdmin && <div className="admin-actions"><button className="btn btn-sm btn-danger" onClick={async () => { const r = await removeHighlight(h); r.error ? toast(r.error, 'error') : toast('Removed'); }}>Delete</button></div>}
+                  {h.type === 'video'
+                    ? <video src={h.url} style={{ width: '100%', maxHeight: '70vh' }} controls playsInline loop muted />
+                    : <img src={h.url} alt="Highlight" style={{ width: '100%' }} />}
                 </div>
               ))}
-
-              {(!highlights || highlights.filter(h => h.eventId === selectedEvent.id).length === 0) && (
-                <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#555' }}>
-                  <p style={{ fontSize: '1.2rem' }}>No highlights recorded in this sector yet.</p>
-                </div>
+              {highlights.filter((h) => h.event_id === reelEvent.id).length === 0 && (
+                <div className="empty-state"><p>No highlights yet{isAdmin ? ' — be the first to add one!' : '.'}</p></div>
               )}
             </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
