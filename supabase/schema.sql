@@ -91,6 +91,29 @@ alter table public.event_rsvps   add column if not exists birthdate text;
 alter table public.event_rsvps   add column if not exists bringing_guests text;
 alter table public.event_rsvps   add column if not exists created_at timestamptz not null default now();
 
+-- ---------- Realign highlights.event_id to events.id's type ----------
+-- The events table's primary key is uuid on fresh installs but bigint on
+-- databases created through the Supabase dashboard (its default PK is int8).
+-- If highlights.event_id is a different type than events.id, inserting an
+-- event id throws "invalid input syntax for type uuid" on highlight upload.
+-- highlights holds no valid rows until uploads work, so rebuilding the column
+-- (drop + re-add with the matching type) is safe. event_rsvps is left alone —
+-- its event_id already matches events.id and has a working foreign key.
+do $$
+declare
+  ev_type text;
+  he_type text;
+begin
+  select format_type(atttypid, atttypmod) into ev_type
+    from pg_attribute where attrelid = 'public.events'::regclass and attname = 'id';
+  select format_type(atttypid, atttypmod) into he_type
+    from pg_attribute where attrelid = 'public.highlights'::regclass and attname = 'event_id';
+  if he_type is distinct from ev_type then
+    alter table public.highlights drop column if exists event_id cascade;
+    execute format('alter table public.highlights add column event_id %s', ev_type);
+  end if;
+end $$;
+
 -- ---------- Helpful indexes (scale) ----------
 create index if not exists idx_highlights_event on public.highlights(event_id);
 create index if not exists idx_rsvps_event      on public.event_rsvps(event_id);
