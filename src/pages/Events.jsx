@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { uploadImage } from '../lib/supabase';
+import { sendRsvpConfirmation, sendEventUpdate, sendRsvpRemoved } from '../lib/email';
 import Pattern from '../components/Pattern';
 
 const PAGE_SIZE = 9;
@@ -38,7 +39,7 @@ function Countdown({ targetDate }) {
 }
 
 export default function Events() {
-  const { events, addEvent, updateEvent, removeEvent, isAdmin, highlights, addHighlight, removeHighlight, rsvps, addRsvp } = useAdmin();
+  const { events, addEvent, updateEvent, removeEvent, isAdmin, highlights, addHighlight, removeHighlight, rsvps, addRsvp, removeRsvp } = useAdmin();
   const toast = useToast();
 
   const [tab, setTab] = useState('upcoming');
@@ -51,7 +52,7 @@ export default function Events() {
   const [reelEvent, setReelEvent] = useState(null);
   const [rsvpEvent, setRsvpEvent] = useState(null);
   const [viewRsvps, setViewRsvps] = useState(null);
-  const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No, just me' });
+  const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
   const [myRsvps, setMyRsvps] = useState({});
   const [uploading, setUploading] = useState(false);
 
@@ -78,7 +79,19 @@ export default function Events() {
     const res = editId ? await updateEvent(editId, draft) : await addEvent(draft);
     setSaving(false);
     if (res.error) return toast(res.error, 'error');
-    toast(editId ? 'Event updated' : 'Event published ✦', 'success');
+    if (editId) {
+      // Email everyone who RSVP'd (best-effort) that the event changed.
+      const recipients = rsvps.filter((r) => r.event_id === editId && r.email);
+      if (recipients.length) {
+        const updated = { ...draft, id: editId };
+        Promise.allSettled(recipients.map((r) => sendEventUpdate(r, updated)));
+        toast(`Event updated · notifying ${recipients.length} attendee${recipients.length > 1 ? 's' : ''}`, 'success');
+      } else {
+        toast('Event updated', 'success');
+      }
+    } else {
+      toast('Event published ✦', 'success');
+    }
     resetForm();
   };
 
@@ -122,27 +135,63 @@ export default function Events() {
     res.error ? toast(res.error, 'error') : toast('Highlight added ✦', 'success');
   };
 
+  const downloadHighlight = async (h) => {
+    try {
+      const res = await fetch(h.url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = h.path?.split('/').pop() || `highlight.${h.type === 'video' ? 'mp4' : 'jpg'}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(h.url, '_blank'); // fallback if a CORS/blob download is blocked
+    }
+  };
+
+  const shareHighlight = async (h) => {
+    const data = { title: `${reelEvent.title} — highlight`, text: `A highlight from ${reelEvent.title} 🎉`, url: h.url };
+    try {
+      if (navigator.share) { await navigator.share(data); return; }
+      await navigator.clipboard.writeText(h.url);
+      toast('Link copied to clipboard', 'success');
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('Couldn’t share — try downloading', 'error');
+    }
+  };
+
   const submitRsvp = async (e) => {
     e.preventDefault();
     if (rsvpEvent?._seed) { setRsvpEvent(null); return toast('This is a demo event — RSVP opens once real events are added', 'gold'); }
     const payload = {
       event_id: rsvpEvent.id, first_name: rsvpData.firstName, last_name: rsvpData.lastName,
-      birthdate: rsvpData.birthdate, bringing_guests: rsvpData.bringingGuests,
+      email: rsvpData.email.trim(), bringing_guests: rsvpData.bringingGuests,
     };
     const res = await addRsvp(payload);
     if (res.error) return toast(res.error, 'error');
+    // Best-effort confirmation email to the attendee.
+    sendRsvpConfirmation(payload, rsvpEvent);
     const updated = { ...myRsvps, [rsvpEvent.id]: true };
     setMyRsvps(updated);
     localStorage.setItem('nav_rsvps', JSON.stringify(updated));
     setRsvpEvent(null);
-    setRsvpData({ firstName: '', lastName: '', birthdate: '', bringingGuests: 'No, just me' });
-    toast('You’re on the list — see you there! 🎉', 'success');
+    setRsvpData({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
+    toast('You’re on the list — check your email! 🎉', 'success');
+  };
+
+  const removeRsvpHandler = async (r) => {
+    if (!confirm(`Remove ${r.first_name} ${r.last_name}'s RSVP? They'll be emailed about it.`)) return;
+    const res = await removeRsvp(r.id);
+    if (res.error) return toast(res.error, 'error');
+    if (r.email) sendRsvpRemoved(r, viewRsvps);
+    toast('RSVP removed', 'success');
   };
 
   const exportCsv = () => {
     const data = rsvps.filter((r) => r.event_id === viewRsvps.id);
     if (!data.length) return toast('No RSVPs to export yet', 'gold');
-    const csv = 'First Name,Last Name,Birthdate,Guests\n' + data.map((r) => `"${r.first_name}","${r.last_name}","${r.birthdate}","${r.bringing_guests}"`).join('\n');
+    const csv = 'First Name,Last Name,Email,Guests\n' + data.map((r) => `"${r.first_name}","${r.last_name}","${r.email || ''}","${r.bringing_guests}"`).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url; a.download = `${viewRsvps.title}-rsvps.csv`; a.click();
@@ -262,7 +311,7 @@ export default function Events() {
                 <div className="field" style={{ flex: '1 1 140px' }}><label>First name</label><input className="input" required value={rsvpData.firstName} onChange={(e) => setRsvpData({ ...rsvpData, firstName: e.target.value })} /></div>
                 <div className="field" style={{ flex: '1 1 140px' }}><label>Last name</label><input className="input" required value={rsvpData.lastName} onChange={(e) => setRsvpData({ ...rsvpData, lastName: e.target.value })} /></div>
               </div>
-              <div className="field"><label>Birthdate <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(so we can celebrate you 🎂)</span></label><input className="input" type="date" required value={rsvpData.birthdate} onChange={(e) => setRsvpData({ ...rsvpData, birthdate: e.target.value })} /></div>
+              <div className="field"><label>Email <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(we’ll send your confirmation & any updates here)</span></label><input className="input" type="email" required placeholder="you@uic.edu" value={rsvpData.email} onChange={(e) => setRsvpData({ ...rsvpData, email: e.target.value })} /></div>
               <div className="field"><label>Bringing anyone?</label><select className="select" value={rsvpData.bringingGuests} onChange={(e) => setRsvpData({ ...rsvpData, bringingGuests: e.target.value })}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
               <button type="submit" className="btn" style={{ width: '100%' }}>Confirm RSVP</button>
             </div>
@@ -278,12 +327,18 @@ export default function Events() {
             <div className="modal-body">
               <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Birthdate', 'Guests'].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
+                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Email', 'Guests', ''].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
                   <tbody>
                     {rsvps.filter((r) => r.event_id === viewRsvps.id).map((r) => (
-                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}><td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td><td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td><td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.birthdate}</td><td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td></tr>
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.email ? <a href={`mailto:${r.email}`} style={{ color: 'var(--teal)' }}>{r.email}</a> : '—'}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td>
+                        <td style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}><button className="btn btn-sm btn-danger" onClick={() => removeRsvpHandler(r)} title="Remove RSVP (emails the attendee)">Remove</button></td>
+                      </tr>
                     ))}
-                    {rsvps.filter((r) => r.event_id === viewRsvps.id).length === 0 && <tr><td colSpan="4" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
+                    {rsvps.filter((r) => r.event_id === viewRsvps.id).length === 0 && <tr><td colSpan="5" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -306,11 +361,20 @@ export default function Events() {
                 </label>
               )}
               {highlights.filter((h) => h.event_id === reelEvent.id).map((h) => (
-                <div key={h.id} className="admin-zone" style={{ marginBottom: '1rem', borderRadius: 'var(--r-md)', overflow: 'hidden', background: '#000' }}>
-                  {isAdmin && <div className="admin-actions"><button className="btn btn-sm btn-danger" onClick={async () => { const r = await removeHighlight(h); r.error ? toast(r.error, 'error') : toast('Removed'); }}>Delete</button></div>}
-                  {h.type === 'video'
-                    ? <video src={h.url} style={{ width: '100%', maxHeight: '70vh' }} controls playsInline loop muted />
-                    : <img src={h.url} alt="Highlight" style={{ width: '100%' }} />}
+                <div key={h.id} style={{ marginBottom: '1.2rem', borderRadius: 'var(--r-md)', overflow: 'hidden', background: 'var(--paper)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-md)' }}>
+                  <div style={{ background: '#000', display: 'flex', justifyContent: 'center' }}>
+                    {h.type === 'video'
+                      ? <video src={h.url} style={{ width: '100%', maxHeight: '70vh' }} controls playsInline loop muted />
+                      : <img src={h.url} alt="Event highlight" style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain' }} loading="lazy" />}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.7rem 0.9rem' }}>
+                    <span className="badge" style={{ background: 'rgba(0,140,149,0.1)', color: 'var(--teal-dark)' }}>{h.type === 'video' ? '🎬 Video' : '📷 Photo'}</span>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => shareHighlight(h)} title="Share">↗ Share</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => downloadHighlight(h)} title="Download">⬇ Download</button>
+                      {isAdmin && <button className="btn btn-sm btn-danger" onClick={async () => { const r = await removeHighlight(h); r.error ? toast(r.error, 'error') : toast('Removed'); }}>Delete</button>}
+                    </div>
+                  </div>
                 </div>
               ))}
               {highlights.filter((h) => h.event_id === reelEvent.id).length === 0 && (

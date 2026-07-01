@@ -146,6 +146,7 @@ export function AdminProvider({ children }) {
 
   // ---- RSVPs ----
   const addRsvp = (rsvp) => write(() => supabase.from('event_rsvps').insert([rsvp]).select());
+  const removeRsvp = (id) => write(() => supabase.from('event_rsvps').delete().eq('id', id));
 
   return (
     <AdminContext.Provider value={{
@@ -155,7 +156,7 @@ export function AdminProvider({ children }) {
       leaders, addLeader, updateLeader, removeLeader,
       scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
-      rsvps, addRsvp,
+      rsvps, addRsvp, removeRsvp,
     }}>
       {children}
     </AdminContext.Provider>

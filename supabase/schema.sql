@@ -49,7 +49,7 @@ create table if not exists public.event_rsvps (
   event_id        uuid,
   first_name      text,
   last_name       text,
-  birthdate       text,
+  email           text,
   bringing_guests text,
   created_at      timestamptz not null default now()
 );
@@ -87,8 +87,10 @@ alter table public.highlights    add column if not exists created_at timestamptz
 alter table public.event_rsvps   add column if not exists event_id uuid;
 alter table public.event_rsvps   add column if not exists first_name text;
 alter table public.event_rsvps   add column if not exists last_name text;
-alter table public.event_rsvps   add column if not exists birthdate text;
+alter table public.event_rsvps   add column if not exists email text;
 alter table public.event_rsvps   add column if not exists bringing_guests text;
+-- Email replaced birthdate on the RSVP form; drop the old column if present.
+alter table public.event_rsvps   drop column if exists birthdate;
 alter table public.event_rsvps   add column if not exists created_at timestamptz not null default now();
 
 -- ---------- Realign highlights.event_id to events.id's type ----------
