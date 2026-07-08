@@ -43,7 +43,8 @@ export default function Home() {
         .hero h1 .gold { color: var(--gold); font-style: italic; }
         .hero p.lead { font-size: clamp(1.05rem, 2vw, 1.3rem); max-width: 52ch; color: #d8efee; margin: 1.4rem 0 2.2rem; }
         .hero-orb { position: absolute; border-radius: 50%; filter: blur(2px); z-index: 1; }
-        .hero-sail { position: absolute; right: clamp(-60px, 2vw, 60px); top: 50%; transform: translateY(-50%); width: min(46vw, 460px); opacity: 0.9; z-index: 1; animation: floaty 7s ease-in-out infinite; }
+        .hero-sail { position: absolute; right: clamp(12px, 3vw, 56px); top: 50%; transform: translateY(-50%); width: min(38vw, 380px); max-height: 82%; opacity: 0.9; z-index: 1; animation: floaty 7s ease-in-out infinite; }
+        .hero-sail img { max-height: 100%; }
         @media (max-width: 720px) { .hero-sail { display: none; } }
         .stat-row { display: flex; gap: 2.5rem; flex-wrap: wrap; margin-top: 2.6rem; }
         .stat b { font-family: var(--font-display); font-size: 2rem; color: var(--gold); display: block; line-height: 1; }

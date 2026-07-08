@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from '../components/Toast';
 import Pattern from '../components/Pattern';
@@ -10,7 +10,10 @@ export default function ColdBrew() {
   const toast = useToast();
   const [view, setView] = useState('GLOBAL');
   const [newPlayer, setNewPlayer] = useState('');
-  const [activeGame, setActiveGame] = useState('Uno');
+  const [activeGame, setActiveGame] = useState('');
+  const [customGames, setCustomGames] = useState([]);
+  const [addingGame, setAddingGame] = useState(false);
+  const [newGame, setNewGame] = useState('');
   const [confirmPlayer, setConfirmPlayer] = useState(null);
   const [confirmGame, setConfirmGame] = useState(null);
   const today = new Date().toISOString().split('T')[0];
@@ -28,10 +31,39 @@ export default function ColdBrew() {
     history[s.date][s.game][s.name] = (history[s.date][s.game][s.name] || 0) + s.score;
   });
   const dates = Object.keys(history).sort((a, b) => new Date(b) - new Date(a));
-  const players = [...new Set(scores.map((s) => s.name))];
-  const games = [...new Set(['Uno', 'Durak', 'Smash Bros', ...scores.map((s) => s.game)])];
+  // Games that exist = those with logged scores, plus any the admin just added.
+  const games = [...new Set([...scores.map((s) => s.game), ...customGames])].sort();
+  // Players scoped to the selected game (the scorekeeper works one game at a time).
+  const gamePlayers = [...new Set(scores.filter((s) => s.game === activeGame).map((s) => s.name))];
+
+  // Default the selected game to the first available once games load.
+  useEffect(() => {
+    if (games.length && !games.includes(activeGame)) setActiveGame(games[0]);
+  }, [games, activeGame]);
+
+  // Standard competition ranking: equal scores share a rank (1, 1, 3…).
+  const rankRows = (entries) => {
+    const sorted = [...entries].sort((a, b) => b[1] - a[1]);
+    let lastScore = null, lastRank = 0;
+    return sorted.map(([name, score], i) => {
+      const rank = score === lastScore ? lastRank : i + 1;
+      lastScore = score; lastRank = rank;
+      return { name, score, rank };
+    });
+  };
+  const medal = (rank) => MEDALS[rank - 1] || `#${rank}`;
+
+  const addGame = () => {
+    const g = newGame.trim();
+    if (!g) return;
+    if (!games.includes(g)) setCustomGames((c) => [...c, g]);
+    setActiveGame(g);
+    setNewGame('');
+    setAddingGame(false);
+  };
 
   const log = async (name, delta) => {
+    if (!activeGame) return toast('Add or pick a game first', 'gold');
     const res = await updateWin(name, activeGame, today, delta);
     if (res.error) toast(res.error, 'error');
   };
@@ -75,51 +107,73 @@ export default function ColdBrew() {
         {isAdmin && (
           <div className="op-panel">
             <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '1rem' }}>SCOREKEEPER · {today}</h2>
-            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-              <input className="op-input" placeholder="New player…" value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} style={{ flex: '1 1 160px' }} />
-              <input className="op-input" list="games-list" value={activeGame} onChange={(e) => { setActiveGame(e.target.value); setConfirmGame(null); }} placeholder="Game (type any)" style={{ flex: '1 1 160px' }} />
-              <datalist id="games-list">
-                {games.map((g) => <option key={g} value={g} />)}
-              </datalist>
-              {confirmGame === activeGame && activeGame
+
+            {/* Game picker: choose an existing game or add a new one. */}
+            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem', alignItems: 'center' }}>
+              {games.length > 0 && (
+                <select className="op-input" value={activeGame} onChange={(e) => { setActiveGame(e.target.value); setConfirmGame(null); }} style={{ flex: '1 1 160px' }}>
+                  {games.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+              )}
+              {addingGame ? (
+                <>
+                  <input className="op-input" autoFocus placeholder="New game name…" value={newGame} onChange={(e) => setNewGame(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addGame(); }} style={{ flex: '1 1 160px' }} />
+                  <button className="arcade-btn teal" onClick={addGame}>Add</button>
+                  <button className="arcade-btn" onClick={() => { setAddingGame(false); setNewGame(''); }}>Cancel</button>
+                </>
+              ) : (
+                <button className="arcade-btn teal" onClick={() => setAddingGame(true)}>＋ Game</button>
+              )}
+              {!addingGame && activeGame && (confirmGame === activeGame
                 ? <button className="arcade-btn red" onClick={async () => { const r = await removeGameScores(activeGame); r.error ? toast(r.error, 'error') : toast(`${activeGame} cleared`); setConfirmGame(null); }}>Sure?</button>
-                : <button className="arcade-btn warn" onClick={() => setConfirmGame(activeGame)}>Clear game</button>}
+                : <button className="arcade-btn warn" onClick={() => setConfirmGame(activeGame)}>Clear game</button>)}
             </div>
-            <div style={{ display: 'grid', gap: '0.6rem' }}>
-              {players.concat(newPlayer && !players.includes(newPlayer) ? [newPlayer] : []).map((p) => (
-                <div key={p} className="pchip">
-                  <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{p}</span>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
-                    {confirmPlayer === p
-                      ? <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={async () => { const r = await removePlayerScores(p); r.error ? toast(r.error, 'error') : toast(`${p} removed`); setConfirmPlayer(null); }}>SURE?</button>
-                      : <button className="mini" style={{ background: 'var(--orange)', color: '#2a1404' }} onClick={() => setConfirmPlayer(p)}>DEL</button>}
-                    <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={() => log(p, -1)}>−</button>
-                    <button className="mini" style={{ background: 'var(--teal)', color: '#fff' }} onClick={() => log(p, 1)}>+ WIN</button>
-                  </div>
+
+            {activeGame ? (
+              <>
+                <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                  <input className="op-input" placeholder={`Add player to ${activeGame}…`} value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} style={{ flex: '1 1 220px' }} />
                 </div>
-              ))}
-              {players.length === 0 && !newPlayer && <p style={{ color: '#9fdad8', fontFamily: "'VT323',monospace", fontSize: '1.3rem' }}>Type a name above and hit “+ WIN”.</p>}
-            </div>
+                <div style={{ display: 'grid', gap: '0.6rem' }}>
+                  {gamePlayers.concat(newPlayer && !gamePlayers.includes(newPlayer) ? [newPlayer] : []).map((p) => {
+                    const wins = globalScores[activeGame]?.[p] || 0;
+                    return (
+                      <div key={p} className="pchip">
+                        <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{p}</span>
+                        <span style={{ color: 'var(--gold)', fontSize: '1.1rem' }}>{wins} {wins === 1 ? 'win' : 'wins'}</span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                          {confirmPlayer === p
+                            ? <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={async () => { const r = await removePlayerScores(p); r.error ? toast(r.error, 'error') : toast(`${p} removed`); setConfirmPlayer(null); }}>SURE?</button>
+                            : <button className="mini" style={{ background: 'var(--orange)', color: '#2a1404' }} onClick={() => setConfirmPlayer(p)}>DEL</button>}
+                          <button className="mini" style={{ background: '#c0392b', color: '#fff' }} onClick={() => log(p, -1)}>−</button>
+                          <button className="mini" style={{ background: 'var(--teal)', color: '#fff' }} onClick={() => log(p, 1)}>+ WIN</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {gamePlayers.length === 0 && !newPlayer && <p style={{ color: '#9fdad8', fontFamily: "'VT323',monospace", fontSize: '1.3rem' }}>No players in {activeGame} yet — add one above and hit “+ WIN”.</p>}
+                </div>
+              </>
+            ) : (
+              <p style={{ color: '#9fdad8', fontFamily: "'VT323',monospace", fontSize: '1.3rem' }}>Add a game to start keeping score.</p>
+            )}
           </div>
         )}
 
         {view === 'GLOBAL' && (
           <div className="grid grid-auto" style={{ position: 'relative' }}>
-            {Object.keys(globalScores).map((game) => {
-              const rows = Object.entries(globalScores[game]).sort((a, b) => b[1] - a[1]);
-              return (
-                <div key={game} className="board">
-                  <div className="board-h">{game} · All-Time</div>
-                  {rows.map(([name, score], i) => (
-                    <div key={name} className={`row ${i === 0 ? 'lead' : ''}`}>
-                      <span className="rank">{MEDALS[i] || `#${i + 1}`}</span>
-                      <span style={{ textTransform: 'uppercase' }}>{name}</span>
-                      <span className="pts">{score}</span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+            {Object.keys(globalScores).map((game) => (
+              <div key={game} className="board">
+                <div className="board-h">{game} · All-Time</div>
+                {rankRows(Object.entries(globalScores[game])).map(({ name, score, rank }) => (
+                  <div key={name} className={`row ${rank === 1 ? 'lead' : ''}`}>
+                    <span className="rank">{medal(rank)}</span>
+                    <span style={{ textTransform: 'uppercase' }}>{name}</span>
+                    <span className="pts">{score}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
             {Object.keys(globalScores).length === 0 && <div className="empty-state board" style={{ color: '#9fdad8', gridColumn: '1/-1' }}><p>No wins logged yet. Let the games begin!</p></div>}
           </div>
         )}
@@ -130,21 +184,18 @@ export default function ColdBrew() {
               <div key={date}>
                 <h2 style={{ fontFamily: "'Press Start 2P', monospace", fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '1rem' }}>NIGHT · {date}</h2>
                 <div className="grid grid-auto">
-                  {Object.keys(history[date]).map((game) => {
-                    const rows = Object.entries(history[date][game]).sort((a, b) => b[1] - a[1]);
-                    return (
-                      <div key={game} className="board">
-                        <div className="board-h">{game}</div>
-                        {rows.map(([name, score], i) => (
-                          <div key={name} className={`row ${i === 0 ? 'lead' : ''}`}>
-                            <span className="rank">{MEDALS[i] || `#${i + 1}`}</span>
-                            <span style={{ textTransform: 'uppercase' }}>{name}</span>
-                            <span className="pts">+{score}</span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })}
+                  {Object.keys(history[date]).map((game) => (
+                    <div key={game} className="board">
+                      <div className="board-h">{game}</div>
+                      {rankRows(Object.entries(history[date][game])).map(({ name, score, rank }) => (
+                        <div key={name} className={`row ${rank === 1 ? 'lead' : ''}`}>
+                          <span className="rank">{medal(rank)}</span>
+                          <span style={{ textTransform: 'uppercase' }}>{name}</span>
+                          <span className="pts">+{score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
