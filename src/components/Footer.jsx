@@ -24,14 +24,14 @@ export default function Footer() {
 
         <div>
           <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>Connect</h4>
-          <a href="https://instagram.com/uicnavigators" target="_blank" rel="noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>Instagram @uicnavigators</a>
+          <a href="https://chat.whatsapp.com/HdFHVznfmCsDVAWTJE50Aa?mode=gi_t" target="_blank" rel="noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>💬 Join our WhatsApp group</a>
           <a href="mailto:contact@uicnavigators.org" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>contact@uicnavigators.org</a>
           <p style={{ color: '#9fc0bd', fontSize: '0.85rem', marginTop: '0.6rem' }}>University of Illinois Chicago</p>
         </div>
       </div>
 
       <div className="container" style={{ position: 'relative', borderTop: '1px solid rgba(255,255,255,0.12)', padding: '1.2rem 1.5rem', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.82rem', color: '#9fc0bd' }}>
-        <span>&copy; {new Date().getFullYear()} UIC Navigators. All rights reserved.</span>
+        <span>&copy; {new Date().getFullYear()} Navigators at UIC. All rights reserved.</span>
         <span>Navigator Teal &amp; Gold · built with care</span>
       </div>
     </footer>

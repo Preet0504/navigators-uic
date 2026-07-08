@@ -1,22 +1,24 @@
 import React from 'react';
 
 /**
- * Navigators brand mark: a stylized sail inside the gold ring, with the
- * "navigators" wordmark in Navigator Teal. Faithful to the brand guide
- * (gold ring, gold sail, teal lowercase wordmark).
+ * Official Navigators brand mark — the gold ring + sail (with ®), served from
+ * public/logo.svg. The source was cleaned to gold-only, transparent paths so it
+ * sits correctly on any background (light navbar, dark teal footer/hero).
  *
- * @param {boolean} wordmark  show the "navigators" text next to the icon
- * @param {string}  light     render wordmark in white (for dark backgrounds)
+ * @param {boolean} wordmark  show the "navigators" wordmark next to the mark
+ * @param {boolean} light     render the wordmark in white (for dark backgrounds)
  */
 export default function BrandLogo({ size = 38, wordmark = true, light = false, className = '' }) {
   const wordColor = light ? '#ffffff' : '#008c95';
   return (
     <span className={`brand-logo ${className}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.6rem' }}>
-      <svg width={size} height={size} viewBox="0 0 100 100" role="img" aria-label="Navigators">
-        <circle cx="50" cy="50" r="43" fill="none" stroke="#d19f2a" strokeWidth="7" />
-        <path d="M50 20 C42 40 36 58 30 72 L62 72 C60 54 56 36 50 20 Z" fill="#d19f2a" />
-        <path d="M50 20 C46 38 44 56 44 72 L30 72 C36 58 42 40 50 20 Z" fill="#b9881d" />
-      </svg>
+      <img
+        src="/logo.svg"
+        alt="Navigators"
+        width={size}
+        height={size}
+        style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+      />
       {wordmark && (
         <span
           style={{

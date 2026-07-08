@@ -1,6 +1,6 @@
-# UIC Navigators Hub
+# Navigators at UIC — Hub
 
-The community website for **UIC Navigators** — events, Bible studies, the Cold Brew
+The community website for **Navigators at UIC** — events, Bible studies, the Cold Brew
 game-night leaderboard, and the team. Built on the official Navigators brand
 (Navigator Teal `#008c95` + Navigator Gold `#d19f2a`, Montserrat + Playfair Display).
 

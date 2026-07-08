@@ -75,7 +75,7 @@ export default function Home() {
         <div className="hero-orb" style={{ width: 320, height: 320, background: 'rgba(209,159,42,0.35)', top: -120, left: -80 }} />
         <BrandLogo className="hero-sail" size={460} wordmark={false} />
         <div className="hero-inner">
-          <span className="eyebrow" style={{ color: '#fff' }}>UIC Navigators</span>
+          <span className="eyebrow" style={{ color: '#fff' }}>Navigators at UIC</span>
           <h1>Find your <span className="gold">people.</span></h1>
           <p className="lead">
             A community of students growing in faith and friendship at the University of Illinois Chicago.
