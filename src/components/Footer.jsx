@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import BrandLogo from './BrandLogo';
 import Pattern from './Pattern';
+import { RESOURCES } from '../data/resources';
 
 export default function Footer() {
   return (
@@ -17,8 +18,15 @@ export default function Footer() {
 
         <div>
           <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>Explore</h4>
-          {[['Home', '/'], ['Events', '/events'], ['Bible Studies', '/bible-studies'], ['Cold Brew', '/cold-brew'], ['People', '/people']].map(([label, to]) => (
+          {[['Home', '/'], ['Events', '/events'], ['Bible Studies', '/bible-studies'], ['Cold Brew', '/cold-brew'], ['People', '/people'], ['Community', '/community']].map(([label, to]) => (
             <Link key={to} to={to} style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>{label}</Link>
+          ))}
+        </div>
+
+        <div>
+          <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>The Navigators</h4>
+          {RESOURCES.map((r) => (
+            <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>{r.label} ↗</a>
           ))}
         </div>
 

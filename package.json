@@ -12,10 +12,14 @@
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@supabase/supabase-js": "^2.105.1",
+    "country-state-city": "^3.2.1",
+    "d3-geo": "^3.1.1",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.14.0"
+    "react-router-dom": "^7.14.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

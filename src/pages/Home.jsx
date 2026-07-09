@@ -5,6 +5,7 @@ import { useReveal } from '../hooks/useReveal';
 import { isUpcoming, parseDate, formatDay } from '../lib/format';
 import BrandLogo from '../components/BrandLogo';
 import Pattern from '../components/Pattern';
+import { RESOURCES } from '../data/resources';
 
 const QUICK = [
   { to: '/events', label: 'Events', desc: 'Bonfires, retreats & weekly hangs', accent: 'var(--orange)', icon: '✦' },
@@ -68,6 +69,24 @@ export default function Home() {
         .value-card h4 { font-size: 1.3rem; margin: 0.2rem 0 0.5rem; }
 
         .cta-band { position: relative; margin: 0 1rem; border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(120deg, var(--gold) 0%, #e7b94e 100%); color: #2a2207; text-align: center; padding: clamp(2.5rem,5vw,4rem) 1.5rem; }
+
+        .res-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1.3rem; }
+        .res-card {
+          position: relative; overflow: hidden; isolation: isolate;
+          display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem;
+          min-height: 220px; padding: 1.7rem; border-radius: var(--r-lg); color: #fff;
+          box-shadow: var(--shadow-md);
+          transition: transform .35s var(--ease), box-shadow .35s var(--ease);
+        }
+        .res-card::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(160deg, rgba(255,255,255,0.18), transparent 46%); }
+        .res-card:hover { transform: translateY(-8px) scale(1.015); box-shadow: var(--shadow-lg); }
+        .res-glyph { position: absolute; right: -0.6rem; bottom: -1.8rem; font-size: 8.5rem; line-height: 1; opacity: 0.17; transform: rotate(-8deg); transition: transform .45s var(--ease); pointer-events: none; }
+        .res-card:hover .res-glyph { transform: rotate(0deg) scale(1.08); }
+        .res-body h3 { color: #fff; font-size: 1.5rem; margin-bottom: 0.35rem; }
+        .res-body p { color: rgba(255,255,255,0.92); font-size: 0.92rem; line-height: 1.5; }
+        .res-cta { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.02em; }
+        .res-arrow { transition: transform .3s var(--ease); }
+        .res-card:hover .res-arrow { transform: translate(3px, -3px); }
       `}</style>
 
       {/* HERO */}
@@ -158,6 +177,27 @@ export default function Home() {
               <h4>{v.t}</h4>
               <p className="muted" style={{ fontSize: '0.92rem' }}>{v.d}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* EXPLORE THE NAVIGATORS (outbound) */}
+      <section className="section container">
+        <div className="reveal center" style={{ marginBottom: '2rem' }}>
+          <span className="eyebrow" style={{ justifyContent: 'center' }}>Beyond campus</span>
+          <h2 className="section-title">Explore The Navigators</h2>
+          <p className="section-sub" style={{ margin: '0.4rem auto 0' }}>We’re one campus chapter of a worldwide ministry. Dive deeper, get involved, or give.</p>
+        </div>
+        <div className="res-grid">
+          {RESOURCES.map((r, i) => (
+            <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" className="res-card reveal" style={{ background: r.grad, transitionDelay: `${i * 60}ms` }}>
+              <span className="res-glyph" aria-hidden="true">{r.icon}</span>
+              <div className="res-body">
+                <h3>{r.label}</h3>
+                <p>{r.desc}</p>
+              </div>
+              <span className="res-cta">Visit navigators.org <span className="res-arrow">↗</span></span>
+            </a>
           ))}
         </div>
       </section>

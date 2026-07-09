@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, isConfigured, uploadHighlight, removeHighlightFile } from '../lib/supabase';
-import { SEED_EVENTS, SEED_STUDIES, SEED_LEADERS, SEED_SCORES } from '../data/seed';
+import { SEED_EVENTS, SEED_STUDIES, SEED_LEADERS, SEED_SCORES, SEED_PINS, SEED_FEEDBACK } from '../data/seed';
 
 const AdminContext = createContext();
 export function useAdmin() {
@@ -15,6 +15,8 @@ const TABLES = {
   highlights: { setter: 'setHighlights', order: { column: 'created_at', ascending: false }, seed: [] },
   event_rsvps: { setter: 'setRsvps', order: { column: 'created_at', ascending: false }, seed: [] },
   leaders: { setter: 'setLeaders', order: { column: 'sort', ascending: true }, seed: SEED_LEADERS },
+  map_pins: { setter: 'setPins', order: { column: 'created_at', ascending: false }, seed: SEED_PINS },
+  feedback: { setter: 'setFeedback', order: { column: 'created_at', ascending: false }, seed: SEED_FEEDBACK },
 };
 
 export function AdminProvider({ children }) {
@@ -28,8 +30,10 @@ export function AdminProvider({ children }) {
   const [highlights, setHighlights] = useState([]);
   const [rsvps, setRsvps] = useState([]);
   const [leaders, setLeaders] = useState(SEED_LEADERS);
+  const [pins, setPins] = useState(SEED_PINS);
+  const [feedback, setFeedback] = useState(SEED_FEEDBACK);
 
-  const setters = useRef({ setEvents, setStudies, setScores, setHighlights, setRsvps, setLeaders });
+  const setters = useRef({ setEvents, setStudies, setScores, setHighlights, setRsvps, setLeaders, setPins, setFeedback });
 
   // ---- Fetch a single table, falling back to seed on error ----
   const fetchTable = useCallback(async (name) => {
@@ -145,8 +149,34 @@ export function AdminProvider({ children }) {
   };
 
   // ---- RSVPs ----
-  const addRsvp = (rsvp) => write(() => supabase.from('event_rsvps').insert([rsvp]).select());
+  // No .select() here: anon users can't read back the row they insert (RLS lets
+  // the public insert but not read event_rsvps), and requesting the row back
+  // makes the insert fail with "new row violates row-level security policy".
+  const addRsvp = (rsvp) => write(() => supabase.from('event_rsvps').insert([rsvp]));
   const removeRsvp = (id) => write(() => supabase.from('event_rsvps').delete().eq('id', id));
+
+  // ---- Map pins (anonymous, one per browser via visitor_id) ----
+  // addPin returns the inserted row so the page can remember its id locally.
+  const addPin = async (pin) => {
+    if (!supabase) return { error: 'Backend not configured. Connect Supabase to drop a pin.' };
+    try {
+      const { data, error } = await supabase.from('map_pins').insert([pin]).select().single();
+      if (error) return { error: error.message };
+      return { ok: true, data };
+    } catch (e) { return { error: e.message || 'Something went wrong' }; }
+  };
+  const updatePin = (id, updates) => write(() => supabase.from('map_pins').update(updates).eq('id', id));
+  // A visitor may only remove a pin that matches their own visitor_id.
+  const removePin = (id, visitorId) => write(() => supabase.from('map_pins').delete().eq('id', id).eq('visitor_id', visitorId));
+  // Admin override: remove any pin.
+  const removeAnyPin = (id) => write(() => supabase.from('map_pins').delete().eq('id', id));
+
+  // ---- Feedback (public submits → admin approves/rejects) ----
+  // No .select(): the public read policy only exposes approved rows, so trying
+  // to read back the just-inserted pending row fails RLS. We don't need it back.
+  const addFeedback = (fb) => write(() => supabase.from('feedback').insert([{ ...fb, status: 'pending' }]));
+  const approveFeedback = (id) => write(() => supabase.from('feedback').update({ status: 'approved' }).eq('id', id));
+  const rejectFeedback = (id) => write(() => supabase.from('feedback').delete().eq('id', id));
 
   return (
     <AdminContext.Provider value={{
@@ -157,6 +187,8 @@ export function AdminProvider({ children }) {
       scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
       rsvps, addRsvp, removeRsvp,
+      pins, addPin, updatePin, removePin, removeAnyPin,
+      feedback, addFeedback, approveFeedback, rejectFeedback,
     }}>
       {children}
     </AdminContext.Provider>

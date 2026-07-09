@@ -9,6 +9,7 @@ const LINKS = [
   { name: 'Bible Studies', path: '/bible-studies' },
   { name: 'Cold Brew', path: '/cold-brew' },
   { name: 'People', path: '/people' },
+  { name: 'Community', path: '/community' },
 ];
 
 export default function Navbar() {

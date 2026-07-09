@@ -175,3 +175,81 @@ begin
     end;
   end loop;
 end $$;
+
+-- ============================================================
+--  COMMUNITY FEATURES — world-map pins + feedback wall
+--  (self-contained; idempotent; safe to re-run on existing DBs)
+-- ============================================================
+
+-- ---------- Map pins: visitors mark where they're from ----------
+-- Identity is an anonymous per-browser token (visitor_id, a uuid kept in the
+-- visitor's localStorage). One pin per browser; the visitor can update/remove
+-- their own row. Pins are aggregated by location on the map, so the same
+-- person on a second browser just makes their region's pin larger.
+create table if not exists public.map_pins (
+  id           uuid primary key default gen_random_uuid(),
+  visitor_id   text,
+  country      text not null,
+  country_code text,
+  state        text,
+  state_code   text,
+  lat          double precision,
+  lng          double precision,
+  created_at   timestamptz not null default now()
+);
+alter table public.map_pins add column if not exists visitor_id text;
+alter table public.map_pins add column if not exists country_code text;
+alter table public.map_pins add column if not exists state text;
+alter table public.map_pins add column if not exists state_code text;
+alter table public.map_pins add column if not exists lat double precision;
+alter table public.map_pins add column if not exists lng double precision;
+alter table public.map_pins add column if not exists created_at timestamptz not null default now();
+create index if not exists idx_map_pins_visitor on public.map_pins(visitor_id);
+create index if not exists idx_map_pins_loc     on public.map_pins(country_code, state_code);
+
+-- ---------- Feedback wall: submissions await admin approval ----------
+create table if not exists public.feedback (
+  id          uuid primary key default gen_random_uuid(),
+  name        text,
+  message     text not null,
+  status      text not null default 'pending',   -- 'pending' | 'approved'
+  created_at  timestamptz not null default now()
+);
+alter table public.feedback add column if not exists name text;
+alter table public.feedback add column if not exists status text not null default 'pending';
+alter table public.feedback add column if not exists created_at timestamptz not null default now();
+create index if not exists idx_feedback_status on public.feedback(status);
+
+-- ---------- RLS ----------
+alter table public.map_pins enable row level security;
+alter table public.feedback enable row level security;
+
+-- map_pins: everyone reads; a visitor adds/updates/removes their own pin
+-- (the client scopes writes by the unguessable uuid + visitor_id). Admins
+-- (authenticated) may manage everything.
+drop policy if exists "map_pins_read"   on public.map_pins;
+drop policy if exists "map_pins_insert" on public.map_pins;
+drop policy if exists "map_pins_update" on public.map_pins;
+drop policy if exists "map_pins_delete" on public.map_pins;
+drop policy if exists "map_pins_admin"  on public.map_pins;
+create policy "map_pins_read"   on public.map_pins for select using (true);
+create policy "map_pins_insert" on public.map_pins for insert with check (true);
+create policy "map_pins_update" on public.map_pins for update using (true) with check (true);
+create policy "map_pins_delete" on public.map_pins for delete using (true);
+create policy "map_pins_admin"  on public.map_pins for all to authenticated using (true) with check (true);
+
+-- feedback: public may submit (as 'pending' only) and read only 'approved'
+-- items; admins (authenticated) read + manage everything (the moderation queue).
+drop policy if exists "feedback_read_public" on public.feedback;
+drop policy if exists "feedback_insert"      on public.feedback;
+drop policy if exists "feedback_admin"       on public.feedback;
+create policy "feedback_read_public" on public.feedback for select using (status = 'approved');
+create policy "feedback_insert"      on public.feedback for insert with check (status = 'pending');
+create policy "feedback_admin"       on public.feedback for all to authenticated using (true) with check (true);
+
+-- ---------- Realtime ----------
+do $$
+begin
+  begin execute 'alter publication supabase_realtime add table public.map_pins'; exception when duplicate_object then null; end;
+  begin execute 'alter publication supabase_realtime add table public.feedback'; exception when duplicate_object then null; end;
+end $$;
