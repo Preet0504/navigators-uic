@@ -2,9 +2,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useReveal } from '../hooks/useReveal';
-import { isUpcoming, parseDate, formatDay } from '../lib/format';
+import { isUpcoming, parseDate } from '../lib/format';
 import BrandLogo from '../components/BrandLogo';
 import Pattern from '../components/Pattern';
+import EventCard from '../components/EventCard';
 import { RESOURCES } from '../data/resources';
 
 const QUICK = [
@@ -142,21 +143,9 @@ export default function Home() {
           <Link to="/events" className="btn btn-ghost btn-sm">View all events</Link>
         </div>
         <div className="grid grid-auto">
-          {upcoming.length > 0 ? upcoming.map((ev) => {
-            const d = formatDay(ev.date);
-            return (
-              <Link to="/events" key={ev.id} className="card card-hover reveal">
-                <div className="ev-card">
-                  <div className="ev-date"><div className="d">{d.day}</div><div className="m">{d.month}</div></div>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="badge" style={{ marginBottom: '0.35rem' }}>{d.weekday}</div>
-                    <h3 style={{ fontSize: '1.2rem', marginBottom: '0.2rem' }}>{ev.title}</h3>
-                    <p className="muted" style={{ fontSize: '0.88rem', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{ev.description}</p>
-                  </div>
-                </div>
-              </Link>
-            );
-          }) : (
+          {upcoming.length > 0 ? (
+            upcoming.map((ev) => <EventCard key={ev.id} event={ev} />)
+          ) : (
             <div className="empty-state card" style={{ gridColumn: '1 / -1' }}>
               <p>No upcoming events scheduled right now — check back soon!</p>
             </div>

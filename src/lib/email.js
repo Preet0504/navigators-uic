@@ -39,15 +39,21 @@ const whenWhere = (event) => {
   return bits.length ? `\n\n${bits.join('\n')}` : '';
 };
 
-/** Sent to an attendee right after they RSVP. */
-export function sendRsvpConfirmation(rsvp, event) {
+/**
+ * Sent right after someone RSVPs. When a confirmUrl is supplied we ask them to
+ * click it to confirm (double opt-in — proves they own the inbox).
+ */
+export function sendRsvpConfirmation(rsvp, event, confirmUrl) {
   const name = fullName(rsvp);
+  const confirmLine = confirmUrl
+    ? `\n\nOne quick step to finish — confirm it's really you by opening this link:\n${confirmUrl}\n\nIf you didn't RSVP, you can safely ignore this email.`
+    : '';
   return send({
     to_email: rsvp.email,
     to_name: name,
-    subject: `You're RSVP'd — ${event.title}`,
+    subject: `Confirm your RSVP — ${event.title}`,
     title: event.title,
-    message: `Hi ${name},\n\nYou're confirmed for "${event.title}". We can't wait to see you!${whenWhere(event)}\n\n— The Navigators`,
+    message: `Hi ${name},\n\nThanks for RSVPing to "${event.title}"!${whenWhere(event)}${confirmLine}\n\n— The Navigators`,
   });
 }
 
