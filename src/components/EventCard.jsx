@@ -133,8 +133,12 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         .ec .ec-date .dd { font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; color: var(--teal); line-height: 1; }
         .ec .ec-date .mm { font-size: 0.6rem; letter-spacing: 0.08em; color: var(--text-muted); }
         .ec .ec-body { padding: 1.6rem 1.4rem 1.4rem; flex: 1; display: flex; flex-direction: column; }
-        .ec .ec-teaser { color: var(--text-muted); font-size: 0.9rem; flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-        .ec .ec-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.9rem; }
+        .ec .ec-teaser { color: var(--text-muted); font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        /* margin-top:auto eats the height variation above, pinning the action
+           area (links + countdown + button) to the bottom so it lines up across
+           cards of different content length. */
+        .ec .ec-actions { margin-top: auto; padding-top: 0.9rem; }
+        .ec .ec-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
         .rte-content { color: var(--text); line-height: 1.7; }
         .rte-content p { margin: 0 0 0.7rem; }
         .rte-content ul, .rte-content ol { padding-left: 1.4rem; margin: 0.5rem 0; }
@@ -178,25 +182,27 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         <h3 style={{ fontSize: '1.35rem', marginBottom: '0.4rem' }}>{ev.title}</h3>
         {teaser && <p className="ec-teaser">{teaser}</p>}
 
-        {(hasDetails || faqs.length > 0) && (
-          <div className="ec-links">
-            {hasDetails && <button className="btn btn-ghost btn-sm" onClick={() => setModal('details')}>Details</button>}
-            {faqs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setModal('faqs')}>FAQs</button>}
-          </div>
-        )}
+        <div className="ec-actions">
+          {(hasDetails || faqs.length > 0) && (
+            <div className="ec-links">
+              {hasDetails && <button className="btn btn-ghost btn-sm" onClick={() => setModal('details')}>Details</button>}
+              {faqs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setModal('faqs')}>FAQs</button>}
+            </div>
+          )}
 
-        {upcoming ? (
-          <>
-            <Countdown targetDate={ev.date} />
-            {rsvped ? (
-              <div className="badge" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ RSVP received</div>
-            ) : (
-              <button className="btn" style={{ marginTop: '1rem', width: '100%' }} onClick={openRsvp}>RSVP now</button>
-            )}
-          </>
-        ) : (
-          <button className="btn btn-ghost" style={{ marginTop: '1rem', width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>
-        )}
+          {upcoming ? (
+            <>
+              <Countdown targetDate={ev.date} />
+              {rsvped ? (
+                <div className="badge" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ RSVP received</div>
+              ) : (
+                <button className="btn" style={{ marginTop: '1rem', width: '100%' }} onClick={openRsvp}>RSVP now</button>
+              )}
+            </>
+          ) : (
+            <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>
+          )}
+        </div>
       </div>
     </article>
 
