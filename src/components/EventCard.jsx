@@ -4,7 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
-import { sendRsvpConfirmation } from '../lib/email';
+import { sendRsvpConfirmation, emailReady } from '../lib/email';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -211,7 +211,9 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
             <>
               <Countdown targetDate={ev.date} />
               {rsvped ? (
-                <div className="badge" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ RSVP received</div>
+                // Submitted ≠ confirmed. Until they click the emailed link the
+                // RSVP is still 'pending', so don't imply they're done.
+                <div className="badge badge-gold" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', textAlign: 'center' }}>✉️ Check your email to confirm</div>
               ) : (
                 <button className="btn" style={{ marginTop: '1rem', width: '100%' }} onClick={openRsvp}>RSVP now</button>
               )}
@@ -263,6 +265,11 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
           <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submitRsvp}>
             <div className="modal-head"><h2>RSVP — {ev.title}</h2><button type="button" className="icon-btn" onClick={close}>✕</button></div>
             <div className="modal-body">
+              {!emailReady && (
+                <div style={{ background: 'rgba(225,107,42,0.12)', color: '#b4511c', border: '1px solid rgba(225,107,42,0.35)', borderRadius: 'var(--r-sm)', padding: '0.7rem 0.9rem', marginBottom: '1.1rem', fontSize: '0.85rem', fontWeight: 600 }}>
+                  Heads up: confirmation emails aren’t set up right now, so we can’t verify your RSVP automatically. Please message us after you submit.
+                </div>
+              )}
               <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                 <div className="field" style={{ flex: '1 1 140px' }}><label>First name</label><input className="input" required value={rsvpData.firstName} onChange={(e) => setRsvpData({ ...rsvpData, firstName: e.target.value })} /></div>
                 <div className="field" style={{ flex: '1 1 140px' }}><label>Last name</label><input className="input" required value={rsvpData.lastName} onChange={(e) => setRsvpData({ ...rsvpData, lastName: e.target.value })} /></div>
