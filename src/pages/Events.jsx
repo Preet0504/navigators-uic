@@ -5,7 +5,7 @@ import { useReveal } from '../hooks/useReveal';
 import { isUpcoming, parseDate } from '../lib/format';
 import { htmlToText } from '../lib/richtext';
 import { uploadImage } from '../lib/supabase';
-import { sendEventUpdate, sendRsvpRemoved, emailReady } from '../lib/email';
+import { sendEventUpdate, emailReady } from '../lib/email';
 import Pattern from '../components/Pattern';
 import EventCard from '../components/EventCard';
 import RichTextEditor from '../components/RichTextEditor';
@@ -13,10 +13,8 @@ import RichTextEditor from '../components/RichTextEditor';
 const PAGE_SIZE = 9;
 const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', description: '', description_html: '', image: '/sample-event.png', faqs: [] };
 
-const rsvpConfirmed = (r) => r.status == null || r.status === 'confirmed'; // NULL = grandfathered
-
 export default function Events() {
-  const { events, addEvent, updateEvent, isAdmin, rsvps, removeRsvp } = useAdmin();
+  const { events, addEvent, updateEvent, isAdmin, rsvps } = useAdmin();
   const toast = useToast();
 
   const [tab, setTab] = useState('upcoming');
@@ -26,7 +24,6 @@ export default function Events() {
   const [saving, setSaving] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [uploading, setUploading] = useState(false);
-  const [viewRsvps, setViewRsvps] = useState(null);
 
   const filtered = events.filter((e) => (tab === 'upcoming' ? isUpcoming(e.date) : !isUpcoming(e.date)))
     .sort((a, b) => {
@@ -87,24 +84,6 @@ export default function Events() {
   const addFaq = () => setDraft((d) => ({ ...d, faqs: [...(d.faqs || []), { q: '', a: '' }] }));
   const updFaq = (i, key, val) => setDraft((d) => { const faqs = [...(d.faqs || [])]; faqs[i] = { ...faqs[i], [key]: val }; return { ...d, faqs }; });
   const rmFaq = (i) => setDraft((d) => ({ ...d, faqs: (d.faqs || []).filter((_, j) => j !== i) }));
-
-  const removeRsvpHandler = async (r) => {
-    if (!confirm(`Remove ${r.first_name} ${r.last_name}'s RSVP? They'll be emailed about it.`)) return;
-    const res = await removeRsvp(r.id);
-    if (res.error) return toast(res.error, 'error');
-    if (r.email) sendRsvpRemoved(r, viewRsvps);
-    toast('RSVP removed', 'success');
-  };
-
-  const exportCsv = () => {
-    const data = rsvps.filter((r) => r.event_id === viewRsvps.id);
-    if (!data.length) return toast('No RSVPs to export yet', 'gold');
-    const csv = 'First Name,Last Name,Email,Guests,Status\n' + data.map((r) => `"${r.first_name}","${r.last_name}","${r.email || ''}","${r.bringing_guests}","${rsvpConfirmed(r) ? 'Confirmed' : 'Pending'}"`).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = `${viewRsvps.title}-rsvps.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="page" ref={ref}>
@@ -188,7 +167,7 @@ export default function Events() {
         {/* Grid */}
         <div className="grid grid-auto">
           {shown.map((ev) => (
-            <EventCard key={ev.id} event={ev} manage onEdit={startEdit} onViewRsvps={setViewRsvps} />
+            <EventCard key={ev.id} event={ev} manage onEdit={startEdit} />
           ))}
         </div>
 
@@ -201,40 +180,6 @@ export default function Events() {
           </div>
         )}
       </div>
-
-      {/* Admin: view RSVPs */}
-      {viewRsvps && (
-        <div className="modal-overlay" onMouseDown={() => setViewRsvps(null)}>
-          <div className="modal" style={{ maxWidth: 720 }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>RSVPs — {viewRsvps.title}</h2><button className="icon-btn" onClick={() => setViewRsvps(null)}>✕</button></div>
-            <div className="modal-body">
-              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Email', 'Guests', 'Status', ''].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {rsvps.filter((r) => r.event_id === viewRsvps.id).map((r) => (
-                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
-                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td>
-                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td>
-                        <td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.email ? <a href={`mailto:${r.email}`} style={{ color: 'var(--teal)' }}>{r.email}</a> : '—'}</td>
-                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td>
-                        <td style={{ padding: '0.6rem 0.8rem' }}>
-                          {rsvpConfirmed(r)
-                            ? <span className="badge" style={{ background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ Confirmed</span>
-                            : <span className="badge badge-gold">Pending</span>}
-                        </td>
-                        <td style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}><button className="btn btn-sm btn-danger" onClick={() => removeRsvpHandler(r)} title="Remove RSVP (emails the attendee)">Remove</button></td>
-                      </tr>
-                    ))}
-                    {rsvps.filter((r) => r.event_id === viewRsvps.id).length === 0 && <tr><td colSpan="6" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              <div className="center" style={{ marginTop: '1.2rem' }}><button className="btn btn-gold" onClick={exportCsv}>⬇ Export CSV</button></div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

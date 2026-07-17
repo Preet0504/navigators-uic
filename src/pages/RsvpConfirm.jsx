@@ -8,7 +8,7 @@ import BrandLogo from '../components/BrandLogo';
 export default function RsvpConfirm() {
   const [params] = useSearchParams();
   const token = params.get('token');
-  const [state, setState] = useState('working'); // working | ok | invalid | error
+  const [state, setState] = useState('working'); // working | ok | expired | invalid | error
 
   useEffect(() => {
     let active = true;
@@ -18,7 +18,10 @@ export default function RsvpConfirm() {
       try {
         const { data, error } = await supabase.rpc('confirm_rsvp', { p_token: token });
         if (!active) return;
-        setState(error ? 'error' : data ? 'ok' : 'invalid');
+        if (error) setState('error');
+        else if (data === 'ok') setState('ok');
+        else if (data === 'expired') setState('expired');
+        else setState('invalid');
       } catch {
         if (active) setState('error');
       }
@@ -29,7 +32,8 @@ export default function RsvpConfirm() {
   const MESSAGES = {
     working: { icon: '⏳', title: 'Confirming your RSVP…', body: 'One moment while we lock in your spot.' },
     ok: { icon: '🎉', title: "You're all set!", body: 'Your RSVP is confirmed. We can’t wait to see you there.' },
-    invalid: { icon: '🤔', title: 'Link expired or already used', body: 'This confirmation link isn’t valid anymore — you may have already confirmed. If not, just RSVP again from the Events page.' },
+    expired: { icon: '⌛', title: 'This link has expired', body: 'Confirmation links are only valid for 2 minutes. Head back to the event and hit “Resend email” for a fresh link.' },
+    invalid: { icon: '🤔', title: 'Link not found', body: 'This confirmation link isn’t valid — you may have already confirmed or cancelled. If not, just RSVP again from the Events page.' },
     error: { icon: '⚠️', title: 'Something went wrong', body: 'We couldn’t confirm your RSVP right now. Please try the link again in a moment, or RSVP again.' },
   };
   const m = MESSAGES[state];

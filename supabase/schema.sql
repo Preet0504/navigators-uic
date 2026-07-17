@@ -305,3 +305,87 @@ delete from public.event_rsvps a
 create unique index if not exists uniq_rsvp_event_email
   on public.event_rsvps (event_id, lower(email))
   where email is not null;
+
+-- ============================================================
+--  RSVP verification v2 — 120s link expiry, resend, cancel, status
+--  (append; idempotent; safe to re-run)
+-- ============================================================
+
+-- Records when the CURRENT confirm link was issued (for the 120s expiry).
+alter table public.event_rsvps add column if not exists token_sent_at timestamptz default now();
+
+-- confirm_rsvp now returns text and enforces the 120-second expiry.
+-- Return type changed from boolean, so drop the old signature first.
+drop function if exists public.confirm_rsvp(text);
+create or replace function public.confirm_rsvp(p_token text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare r record;
+begin
+  if p_token is null or length(p_token) < 10 then return 'invalid'; end if;
+  select status, token_sent_at into r from public.event_rsvps where token = p_token;
+  if not found then return 'invalid'; end if;
+  if r.status = 'confirmed' then return 'ok'; end if;                      -- idempotent re-click
+  if r.token_sent_at is null or r.token_sent_at < now() - interval '120 seconds' then
+    return 'expired';
+  end if;
+  update public.event_rsvps set status = 'confirmed' where token = p_token;
+  return 'ok';
+end $$;
+grant execute on function public.confirm_rsvp(text) to anon, authenticated;
+
+-- Current status for a token, so the card can show the true state on load.
+create or replace function public.rsvp_status(p_token text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare s text;
+begin
+  if p_token is null then return null; end if;
+  select status into s from public.event_rsvps where token = p_token;
+  return s;   -- null when not found (cancelled / admin-removed)
+end $$;
+grant execute on function public.rsvp_status(text) to anon, authenticated;
+
+-- Resend: rotate to a fresh token + reset the 120s clock (only while pending).
+-- Returns the new token so the client can email the new link; null if the RSVP
+-- is already confirmed or no longer exists.
+create or replace function public.resend_rsvp(p_token text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare new_tok text;
+begin
+  if p_token is null then return null; end if;
+  new_tok := gen_random_uuid()::text;
+  update public.event_rsvps
+    set token = new_tok, token_sent_at = now()
+    where token = p_token and status = 'pending';
+  if not found then return null; end if;
+  return new_tok;
+end $$;
+grant execute on function public.resend_rsvp(text) to anon, authenticated;
+
+-- Cancel: delete the RSVP identified by its token (the person's own browser
+-- holds it). Returns whether a row was removed.
+create or replace function public.cancel_rsvp(p_token text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare n int;
+begin
+  if p_token is null then return false; end if;
+  delete from public.event_rsvps where token = p_token;
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+grant execute on function public.cancel_rsvp(text) to anon, authenticated;

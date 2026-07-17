@@ -4,7 +4,9 @@ import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
-import { sendRsvpConfirmation, emailReady } from '../lib/email';
+import { sendRsvpConfirmation, sendRsvpRemoved, emailReady } from '../lib/email';
+import { supabase } from '../lib/supabase';
+import { getRsvp, saveRsvp, clearRsvp } from '../lib/rsvp';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -29,15 +31,10 @@ function Countdown({ targetDate }) {
 }
 
 const genToken = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
+const rsvpConfirmed = (r) => r.status == null || r.status === 'confirmed'; // NULL = grandfathered
 
-/**
- * One event, everywhere. Renders the card plus its own Details / FAQs / RSVP /
- * Highlights modals so both the Home and Events pages can drop it in and get
- * identical, fully-working cards. Admin management (edit / view RSVPs) is
- * delegated to the host page via `manage` + callbacks.
- */
-export default function EventCard({ event: ev, manage = false, onEdit, onViewRsvps }) {
-  const { isAdmin, removeEvent, addRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
+export default function EventCard({ event: ev, manage = false, onEdit }) {
+  const { isAdmin, removeEvent, addRsvp, rsvps, removeRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
   const toast = useToast();
 
   const upcoming = isUpcoming(ev.date);
@@ -46,19 +43,47 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
   const teaser = (ev.description || htmlToText(ev.description_html)).trim();
   const hasDetails = Boolean((ev.description_html && htmlToText(ev.description_html)) || ev.description);
   const evHighlights = highlights.filter((h) => h.event_id === ev.id);
+  const eventRsvps = rsvps.filter((r) => r.event_id === ev.id);
 
-  const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights'
+  const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights' | 'rsvpsList'
   const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
   const [submitting, setSubmitting] = useState(false);
-  const [rsvped, setRsvped] = useState(() => {
-    try { return Boolean(JSON.parse(localStorage.getItem('nav_rsvps') || '{}')[ev.id]); } catch { return false; }
-  });
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
 
+  // ---- RSVP identity + state for THIS browser ----
+  const [rsvp, setRsvp] = useState(() => getRsvp(ev.id));
+  const [status, setStatus] = useState(() => { const r = getRsvp(ev.id); if (!r) return 'none'; return r.token ? 'checking' : 'pending'; });
+  const [resending, setResending] = useState(false);
+  const [nowTs, setNowTs] = useState(() => Date.now());
+
+  // Verify the real status once on mount (handles confirm-on-another-device and admin removal).
+  useEffect(() => {
+    if (status !== 'checking' || !rsvp?.token || !supabase) return;
+    let active = true;
+    supabase.rpc('rsvp_status', { p_token: rsvp.token }).then(({ data, error }) => {
+      if (!active) return;
+      if (error) setStatus('pending');
+      else if (data === 'confirmed') setStatus('confirmed');
+      else if (data === 'pending') setStatus('pending');
+      else { clearRsvp(ev.id); setRsvp(null); setStatus('none'); }
+    });
+    return () => { active = false; };
+  }, [status, rsvp?.token, ev.id]);
+
+  // Tick the 120s expiry clock while pending.
+  useEffect(() => {
+    if (status !== 'pending' || !rsvp?.sentAt) return;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [status, rsvp?.sentAt]);
+
+  const remaining = rsvp?.sentAt ? Math.max(0, 120 - Math.floor((nowTs - rsvp.sentAt) / 1000)) : 0;
+  const mmss = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+
   const close = () => { setModal(null); setLightbox(null); };
 
-  // ---- RSVP (double opt-in) ----
+  // ---- RSVP submit (double opt-in) ----
   const openRsvp = () => {
     if (ev._seed) return toast('Demo event — RSVP opens once real events are added', 'gold');
     if (ev.rsvp_url) return window.open(ev.rsvp_url, '_blank');
@@ -67,10 +92,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
   const submitRsvp = async (e) => {
     e.preventDefault();
     const email = rsvpData.email.trim().toLowerCase();
-    // Require a UIC email (uic.edu or any *.uic.edu subdomain).
-    if (!/@([a-z0-9-]+\.)*uic\.edu$/.test(email)) {
-      return toast('Please use your UIC email address (…@uic.edu)', 'error');
-    }
+    if (!/@([a-z0-9-]+\.)*uic\.edu$/.test(email)) return toast('Please use your UIC email address (…@uic.edu)', 'error');
     const token = genToken();
     const payload = {
       event_id: ev.id, first_name: rsvpData.firstName.trim(), last_name: rsvpData.lastName.trim(),
@@ -80,26 +102,44 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
     const res = await addRsvp(payload);
     if (res.error) {
       setSubmitting(false);
-      // Unique-index violation → this email already RSVP'd for this event.
       if (/duplicate|unique|23505/i.test(res.error)) return toast('You’ve already RSVP’d for this event with that email.', 'gold');
       return toast(res.error, 'error');
     }
-    // Send the confirmation link and only claim success if it actually sent.
-    const confirmUrl = `${window.location.origin}/rsvp/confirm?token=${token}`;
-    const emailRes = await sendRsvpConfirmation(payload, ev, confirmUrl);
+    const stored = { token, email, first_name: payload.first_name, last_name: payload.last_name, sentAt: Date.now() };
+    const emailRes = await sendRsvpConfirmation(payload, ev, `${window.location.origin}/rsvp/confirm?token=${token}`);
     setSubmitting(false);
-    try {
-      const m = JSON.parse(localStorage.getItem('nav_rsvps') || '{}');
-      m[ev.id] = true; localStorage.setItem('nav_rsvps', JSON.stringify(m));
-    } catch { /* ignore */ }
-    setRsvped(true);
+    saveRsvp(ev.id, stored); setRsvp(stored); setStatus('pending'); setNowTs(Date.now());
     setModal(null);
     setRsvpData({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
-    if (emailRes?.error || emailRes?.skipped) {
-      toast('RSVP saved — but we couldn’t email your confirmation link. Please reach out so we can confirm you.', 'gold');
-    } else {
-      toast('Almost there — check your email to confirm your RSVP ✉️', 'success');
+    if (emailRes?.error || emailRes?.skipped) toast('RSVP saved — but we couldn’t email your confirmation link. Please reach out so we can confirm you.', 'gold');
+    else toast('Almost there — check your email and confirm within 2 minutes ✉️', 'success');
+  };
+
+  const resend = async () => {
+    if (!rsvp?.token || !supabase) return;
+    setResending(true);
+    const { data: newTok, error } = await supabase.rpc('resend_rsvp', { p_token: rsvp.token });
+    if (error || !newTok) {
+      setResending(false);
+      setStatus('checking'); // re-check: probably confirmed or cancelled
+      return toast(error ? 'Couldn’t resend right now — try again.' : 'Nothing to resend (already confirmed or cancelled).', 'gold');
     }
+    const updated = { ...rsvp, token: newTok, sentAt: Date.now() };
+    const emailRes = await sendRsvpConfirmation({ email: rsvp.email, first_name: rsvp.first_name, last_name: rsvp.last_name }, ev, `${window.location.origin}/rsvp/confirm?token=${newTok}`);
+    saveRsvp(ev.id, updated); setRsvp(updated); setNowTs(Date.now());
+    setResending(false);
+    if (emailRes?.error || emailRes?.skipped) toast('Couldn’t send the email — check your address or try again.', 'error');
+    else toast('Fresh confirmation link sent ✉️', 'success');
+  };
+
+  const cancelRsvp = async () => {
+    if (!confirm('Cancel your RSVP for this event?')) return;
+    if (rsvp?.token && supabase) {
+      const { error } = await supabase.rpc('cancel_rsvp', { p_token: rsvp.token });
+      if (error) return toast('Couldn’t cancel right now — try again.', 'error');
+    }
+    clearRsvp(ev.id); setRsvp(null); setStatus('none');
+    toast('Your RSVP was cancelled');
   };
 
   const del = async (e) => {
@@ -108,6 +148,23 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
     if (!confirm(`Delete "${ev.title}"? This can’t be undone.`)) return;
     const res = await removeEvent(ev.id);
     res.error ? toast(res.error, 'error') : toast('Event deleted');
+  };
+
+  // ---- Admin: manage RSVPs ----
+  const removeRsvpHandler = async (r) => {
+    if (!confirm(`Remove ${r.first_name} ${r.last_name}'s RSVP? They'll be emailed about it.`)) return;
+    const res = await removeRsvp(r.id);
+    if (res.error) return toast(res.error, 'error');
+    if (r.email) sendRsvpRemoved(r, ev);
+    toast('RSVP removed', 'success');
+  };
+  const exportCsv = () => {
+    if (!eventRsvps.length) return toast('No RSVPs to export yet', 'gold');
+    const csv = 'First Name,Last Name,Email,Guests,Status\n' + eventRsvps.map((r) => `"${r.first_name}","${r.last_name}","${r.email || ''}","${r.bringing_guests}","${rsvpConfirmed(r) ? 'Confirmed' : 'Pending'}"`).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `${ev.title}-rsvps.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   // ---- Highlights ----
@@ -139,9 +196,6 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
 
   return (
     <>
-    {/* No `reveal` class: EventCard re-renders on context updates, which would
-        reset React's className and wipe the externally-added `in` class,
-        leaving the card stuck at opacity:0. Cards just render immediately. */}
     <article className="ec card admin-zone" style={{ display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .ec .ec-cover { position: relative; }
@@ -151,9 +205,6 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         .ec .ec-date .mm { font-size: 0.6rem; letter-spacing: 0.08em; color: var(--text-muted); }
         .ec .ec-body { padding: 1.6rem 1.4rem 1.4rem; flex: 1; display: flex; flex-direction: column; }
         .ec .ec-teaser { color: var(--text-muted); font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-        /* margin-top:auto eats the height variation above, pinning the action
-           area (links + countdown + button) to the bottom so it lines up across
-           cards of different content length. */
         .ec .ec-actions { margin-top: auto; padding-top: 0.9rem; }
         .ec .ec-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
         .rte-content { color: var(--text); line-height: 1.7; }
@@ -172,15 +223,15 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         .ec-hl img, .ec-hl video { width: 100%; height: 100%; object-fit: cover; }
         .ec-hl .ec-hl-tag { position: absolute; left: 6px; top: 6px; font-size: 0.7rem; background: rgba(0,0,0,0.55); color: #fff; padding: 2px 7px; border-radius: 999px; }
         .ec-hl .ec-hl-del { position: absolute; right: 6px; top: 6px; }
-        .ec-hl-up { display: flex; align-items: center; justify-content: center; text-align: center; aspect-ratio: 1; border: 2px dashed var(--border); border-radius: var(--r-sm); cursor: pointer; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; padding: 0.5rem; background: var(--paper); }
+        .ec-hl-up { display: flex; align-items: center; justify-content: center; text-align: center; aspect-ratio: 4 / 3; border: 2px dashed var(--border); border-radius: var(--r-md); cursor: pointer; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; padding: 0.5rem; background: var(--paper); }
         .ec-lightbox { position: fixed; inset: 0; z-index: 2200; background: rgba(20,17,16,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem; animation: fadeIn .2s ease both; }
         .ec-lightbox img, .ec-lightbox video { max-width: min(100%, 1100px); max-height: 80vh; border-radius: var(--r-md); }
         .ec-lightbox-bar { display: flex; gap: 0.6rem; margin-top: 1rem; }
+        .ec-cta-badge { justify-content: center; width: 100%; padding: 0.6rem; text-align: center; }
       `}</style>
 
       {isAdmin && manage && (
         <div className="admin-actions">
-          <button className="btn btn-sm" style={{ background: 'var(--blue)' }} onClick={(e) => { e.stopPropagation(); onViewRsvps?.(ev); }} title="View RSVPs">RSVPs</button>
           <button className="btn btn-sm btn-gold" onClick={(e) => { e.stopPropagation(); onEdit?.(ev); }} title="Edit">Edit</button>
           <button className="btn btn-sm btn-danger" onClick={del} title="Delete">✕</button>
         </div>
@@ -207,15 +258,33 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
             </div>
           )}
 
-          {upcoming ? (
+          {isAdmin ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('rsvpsList')}>👥 View RSVPs ({eventRsvps.length})</button>
+              {!upcoming && <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>}
+            </div>
+          ) : upcoming ? (
             <>
               <Countdown targetDate={ev.date} />
-              {rsvped ? (
-                // Submitted ≠ confirmed. Until they click the emailed link the
-                // RSVP is still 'pending', so don't imply they're done.
-                <div className="badge badge-gold" style={{ marginTop: '1rem', justifyContent: 'center', width: '100%', padding: '0.6rem', textAlign: 'center' }}>✉️ Check your email to confirm</div>
+              {status === 'confirmed' ? (
+                <>
+                  <div className="badge ec-cta-badge" style={{ marginTop: '1rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ You’re going!</div>
+                  <button className="btn btn-ghost btn-sm" style={{ width: '100%', marginTop: '0.5rem' }} onClick={cancelRsvp}>Cancel RSVP</button>
+                </>
+              ) : status === 'pending' ? (
+                <>
+                  <div className="badge badge-gold ec-cta-badge" style={{ marginTop: '1rem' }}>
+                    {remaining > 0 ? `✉️ Confirm within ${mmss}` : '⌛ Link expired — resend below'}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button className="btn btn-sm" style={{ flex: 1 }} onClick={resend} disabled={resending}>{resending ? 'Sending…' : 'Resend email'}</button>
+                    <button className="btn btn-ghost btn-sm" onClick={cancelRsvp}>Cancel</button>
+                  </div>
+                </>
+              ) : status === 'checking' ? (
+                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} disabled>Checking…</button>
               ) : (
-                <button className="btn" style={{ marginTop: '1rem', width: '100%' }} onClick={openRsvp}>RSVP now</button>
+                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} onClick={openRsvp}>RSVP now</button>
               )}
             </>
           ) : (
@@ -274,12 +343,46 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
                 <div className="field" style={{ flex: '1 1 140px' }}><label>First name</label><input className="input" required value={rsvpData.firstName} onChange={(e) => setRsvpData({ ...rsvpData, firstName: e.target.value })} /></div>
                 <div className="field" style={{ flex: '1 1 140px' }}><label>Last name</label><input className="input" required value={rsvpData.lastName} onChange={(e) => setRsvpData({ ...rsvpData, lastName: e.target.value })} /></div>
               </div>
-              <div className="field"><label>Email <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(we’ll email a link to confirm it’s really you)</span></label><input className="input" type="email" required placeholder="you@uic.edu" value={rsvpData.email} onChange={(e) => setRsvpData({ ...rsvpData, email: e.target.value })} /></div>
+              <div className="field"><label>UIC email <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(we’ll email a link to confirm it’s really you)</span></label><input className="input" type="email" required placeholder="netid@uic.edu" value={rsvpData.email} onChange={(e) => setRsvpData({ ...rsvpData, email: e.target.value })} /></div>
               <div className="field"><label>Bringing anyone?</label><select className="select" value={rsvpData.bringingGuests} onChange={(e) => setRsvpData({ ...rsvpData, bringingGuests: e.target.value })}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
               <button type="submit" className="btn" style={{ width: '100%' }} disabled={submitting}>{submitting ? 'Sending…' : 'Confirm RSVP'}</button>
-              <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.7rem', textAlign: 'center' }}>You’ll get an email with a link to finish your RSVP.</p>
+              <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.7rem', textAlign: 'center' }}>You’ll get an email with a link — it expires in 2 minutes, but you can resend a fresh one.</p>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ---- Admin: RSVP list ---- */}
+      {modal === 'rsvpsList' && (
+        <div className="modal-overlay" onMouseDown={close}>
+          <div className="modal" style={{ maxWidth: 720 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>RSVPs — {ev.title}</h2><button className="icon-btn" onClick={close}>✕</button></div>
+            <div className="modal-body">
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Email', 'Guests', 'Status', ''].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {eventRsvps.map((r) => (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.email ? <a href={`mailto:${r.email}`} style={{ color: 'var(--teal)' }}>{r.email}</a> : '—'}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td>
+                        <td style={{ padding: '0.6rem 0.8rem' }}>
+                          {rsvpConfirmed(r)
+                            ? <span className="badge" style={{ background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ Confirmed</span>
+                            : <span className="badge badge-gold">Pending</span>}
+                        </td>
+                        <td style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}><button className="btn btn-sm btn-danger" onClick={() => removeRsvpHandler(r)} title="Remove RSVP (emails the attendee)">Remove</button></td>
+                      </tr>
+                    ))}
+                    {eventRsvps.length === 0 && <tr><td colSpan="6" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="center" style={{ marginTop: '1.2rem' }}><button className="btn btn-gold" onClick={exportCsv}>⬇ Export CSV</button></div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -312,7 +415,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         </div>
       )}
 
-      {/* ---- Lightbox (enlarged highlight) ---- */}
+      {/* ---- Lightbox ---- */}
       {lightbox && (
         <div className="ec-lightbox" onMouseDown={() => setLightbox(null)}>
           <div onMouseDown={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
