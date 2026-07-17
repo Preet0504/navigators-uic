@@ -7,9 +7,25 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 // instead of crashing when env vars are missing or the project is unreachable.
 export const isConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+// Older builds kept the admin session in localStorage, which survived browser
+// restarts — reopening the site dropped you straight back into admin. Clear any
+// leftover token so a previous browsing session can't be reused.
+try {
+  Object.keys(window.localStorage)
+    .filter((k) => k.startsWith('sb-') && k.includes('-auth-token'))
+    .forEach((k) => window.localStorage.removeItem(k));
+} catch { /* storage unavailable — nothing to clean up */ }
+
 export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        // sessionStorage (not localStorage): the admin session dies with the
+        // browser session, so closing the browser always forces a fresh sign-in.
+        // A refresh within the same tab still keeps you signed in.
+        storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
+      },
     })
   : null;
 

@@ -24,7 +24,7 @@ const VALUES = [
 
 export default function Home() {
   const { events } = useAdmin();
-  const ref = useReveal([events.length]);
+  const ref = useReveal([events.map((e) => e.id).join(',')]);
 
   const upcoming = events
     .filter((e) => isUpcoming(e.date))

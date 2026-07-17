@@ -34,7 +34,7 @@ export default function Events() {
       return tab === 'upcoming' ? ta - tb : tb - ta;
     });
   const shown = filtered.slice(0, visible);
-  const ref = useReveal([tab, shown.length]);
+  const ref = useReveal([tab, shown.map((e) => e.id).join(',')]);
 
   useEffect(() => setVisible(PAGE_SIZE), [tab]);
 

@@ -66,18 +66,28 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
   };
   const submitRsvp = async (e) => {
     e.preventDefault();
+    const email = rsvpData.email.trim().toLowerCase();
+    // Require a UIC email (uic.edu or any *.uic.edu subdomain).
+    if (!/@([a-z0-9-]+\.)*uic\.edu$/.test(email)) {
+      return toast('Please use your UIC email address (…@uic.edu)', 'error');
+    }
     const token = genToken();
     const payload = {
       event_id: ev.id, first_name: rsvpData.firstName.trim(), last_name: rsvpData.lastName.trim(),
-      email: rsvpData.email.trim(), bringing_guests: rsvpData.bringingGuests, status: 'pending', token,
+      email, bringing_guests: rsvpData.bringingGuests, status: 'pending', token,
     };
     setSubmitting(true);
     const res = await addRsvp(payload);
-    setSubmitting(false);
-    if (res.error) return toast(res.error, 'error');
-    // Send the confirmation/verification link (best-effort).
+    if (res.error) {
+      setSubmitting(false);
+      // Unique-index violation → this email already RSVP'd for this event.
+      if (/duplicate|unique|23505/i.test(res.error)) return toast('You’ve already RSVP’d for this event with that email.', 'gold');
+      return toast(res.error, 'error');
+    }
+    // Send the confirmation link and only claim success if it actually sent.
     const confirmUrl = `${window.location.origin}/rsvp/confirm?token=${token}`;
-    sendRsvpConfirmation(payload, ev, confirmUrl);
+    const emailRes = await sendRsvpConfirmation(payload, ev, confirmUrl);
+    setSubmitting(false);
     try {
       const m = JSON.parse(localStorage.getItem('nav_rsvps') || '{}');
       m[ev.id] = true; localStorage.setItem('nav_rsvps', JSON.stringify(m));
@@ -85,7 +95,11 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
     setRsvped(true);
     setModal(null);
     setRsvpData({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
-    toast('Almost there — check your email to confirm your RSVP ✉️', 'success');
+    if (emailRes?.error || emailRes?.skipped) {
+      toast('RSVP saved — but we couldn’t email your confirmation link. Please reach out so we can confirm you.', 'gold');
+    } else {
+      toast('Almost there — check your email to confirm your RSVP ✉️', 'success');
+    }
   };
 
   const del = async (e) => {
@@ -125,7 +139,10 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
 
   return (
     <>
-    <article className="ec card admin-zone reveal" style={{ display: 'flex', flexDirection: 'column' }}>
+    {/* No `reveal` class: EventCard re-renders on context updates, which would
+        reset React's className and wipe the externally-added `in` class,
+        leaving the card stuck at opacity:0. Cards just render immediately. */}
+    <article className="ec card admin-zone" style={{ display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .ec .ec-cover { position: relative; }
         .ec .ec-cover img { width: 100%; height: 180px; object-fit: cover; }
@@ -150,8 +167,8 @@ export default function EventCard({ event: ev, manage = false, onEdit, onViewRsv
         .ec-faq summary::after { content: '+'; color: var(--teal); font-size: 1.3rem; line-height: 1; }
         .ec-faq[open] summary::after { content: '−'; }
         .ec-faq .ec-faq-a { padding: 0 1.1rem 1rem; color: var(--text-muted); line-height: 1.6; }
-        .ec-hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
-        .ec-hl { position: relative; aspect-ratio: 1; border-radius: var(--r-sm); overflow: hidden; background: #000; cursor: pointer; border: 1px solid var(--border); }
+        .ec-hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.9rem; }
+        .ec-hl { position: relative; aspect-ratio: 4 / 3; border-radius: var(--r-md); overflow: hidden; background: #000; cursor: pointer; border: 1px solid var(--border); }
         .ec-hl img, .ec-hl video { width: 100%; height: 100%; object-fit: cover; }
         .ec-hl .ec-hl-tag { position: absolute; left: 6px; top: 6px; font-size: 0.7rem; background: rgba(0,0,0,0.55); color: #fff; padding: 2px 7px; border-radius: 999px; }
         .ec-hl .ec-hl-del { position: absolute; right: 6px; top: 6px; }

@@ -291,3 +291,17 @@ begin
 end $$;
 
 grant execute on function public.confirm_rsvp(text) to anon, authenticated;
+
+-- One RSVP per email per event. First collapse any pre-existing duplicates
+-- (keep the earliest row) so the unique index can be created, then enforce it
+-- case-insensitively. NULL-email rows (legacy) are ignored.
+delete from public.event_rsvps a
+  using public.event_rsvps b
+  where a.email is not null and b.email is not null
+    and a.event_id = b.event_id
+    and lower(a.email) = lower(b.email)
+    and a.ctid > b.ctid;
+
+create unique index if not exists uniq_rsvp_event_email
+  on public.event_rsvps (event_id, lower(email))
+  where email is not null;
