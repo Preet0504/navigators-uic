@@ -132,6 +132,58 @@ alter table public.highlights    enable row level security;
 alter table public.event_rsvps   enable row level security;
 alter table public.leaders       enable row level security;
 
+-- ---------- Accounts: public login + admin allowlist ----------
+-- Members now sign in (Google) to RSVP, so "logged in" no longer means "admin".
+-- Admins must be listed in public.admins; every admin write policy below checks
+-- public.is_admin(). Without this, any signed-in member would inherit admin
+-- rights.
+create table if not exists public.admins ( email text primary key );
+
+-- >>> EDIT ME before running: seed your admin email(s). Idempotent.
+insert into public.admins(email) values ('YOUR-ADMIN-EMAIL@example.com')
+  on conflict (email) do nothing;
+
+-- Is the current user an admin? SECURITY DEFINER so it can read the allowlist
+-- under RLS. Used by the client (rpc) and by every admin policy in this file.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.admins
+    where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+$$;
+grant execute on function public.is_admin() to anon, authenticated;
+
+-- Everyone who has signed in (mirrored from auth by the client on login). Gives
+-- admins a member list to email when a new event is posted.
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text,
+  full_name text,
+  created_at timestamptz default now()
+);
+
+alter table public.admins   enable row level security;
+alter table public.profiles enable row level security;
+
+drop policy if exists "admins_admin" on public.admins;
+create policy "admins_admin" on public.admins for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "profiles_self"       on public.profiles;
+drop policy if exists "profiles_admin_read" on public.profiles;
+-- Each user manages only their own profile row…
+create policy "profiles_self" on public.profiles for all to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
+-- …and admins can read the whole member list (to email everyone).
+create policy "profiles_admin_read" on public.profiles for select to authenticated
+  using (public.is_admin());
+
 do $$
 declare t text;
 begin
@@ -140,15 +192,22 @@ begin
     execute format('drop policy if exists "%s_read"  on public.%I;', t, t);
     execute format('drop policy if exists "%s_write" on public.%I;', t, t);
     execute format('create policy "%s_read"  on public.%I for select using (true);', t, t);
-    execute format('create policy "%s_write" on public.%I for all to authenticated using (true) with check (true);', t, t);
+    execute format('create policy "%s_write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin());', t, t);
   end loop;
 end $$;
 
--- RSVPs: anyone may submit (insert); admins may read/manage.
+-- RSVPs now require login. A member manages only their own RSVP row (identified
+-- by user_id); admins (allowlist) can read/manage all of them.
+alter table public.event_rsvps add column if not exists user_id uuid references auth.users(id) on delete cascade;
+create unique index if not exists uniq_rsvp_event_user on public.event_rsvps(event_id, user_id) where user_id is not null;
+
 drop policy if exists "rsvps_insert" on public.event_rsvps;
 drop policy if exists "rsvps_admin"  on public.event_rsvps;
-create policy "rsvps_insert" on public.event_rsvps for insert with check (true);
-create policy "rsvps_admin"  on public.event_rsvps for all to authenticated using (true) with check (true);
+drop policy if exists "rsvps_self"   on public.event_rsvps;
+create policy "rsvps_self"  on public.event_rsvps for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "rsvps_admin" on public.event_rsvps for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
 
 -- ---------- Storage bucket for highlights / images ----------
 insert into storage.buckets (id, name, public)
@@ -161,7 +220,8 @@ create policy "highlights_public_read" on storage.objects
   for select using (bucket_id = 'highlights');
 create policy "highlights_admin_write" on storage.objects
   for all to authenticated
-  using (bucket_id = 'highlights') with check (bucket_id = 'highlights');
+  using (bucket_id = 'highlights' and public.is_admin())
+  with check (bucket_id = 'highlights' and public.is_admin());
 
 -- ---------- Realtime (ignore if a table is already published) ----------
 do $$
@@ -236,7 +296,7 @@ create policy "map_pins_read"   on public.map_pins for select using (true);
 create policy "map_pins_insert" on public.map_pins for insert with check (true);
 create policy "map_pins_update" on public.map_pins for update using (true) with check (true);
 create policy "map_pins_delete" on public.map_pins for delete using (true);
-create policy "map_pins_admin"  on public.map_pins for all to authenticated using (true) with check (true);
+create policy "map_pins_admin"  on public.map_pins for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- feedback: public may submit (as 'pending' only) and read only 'approved'
 -- items; admins (authenticated) read + manage everything (the moderation queue).
@@ -245,7 +305,7 @@ drop policy if exists "feedback_insert"      on public.feedback;
 drop policy if exists "feedback_admin"       on public.feedback;
 create policy "feedback_read_public" on public.feedback for select using (status = 'approved');
 create policy "feedback_insert"      on public.feedback for insert with check (status = 'pending');
-create policy "feedback_admin"       on public.feedback for all to authenticated using (true) with check (true);
+create policy "feedback_admin"       on public.feedback for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- ---------- Realtime ----------
 do $$
@@ -272,19 +332,11 @@ alter table public.event_rsvps alter column status set default 'pending';
 alter table public.event_rsvps add column if not exists token text;
 create index if not exists idx_rsvps_token on public.event_rsvps(token);
 
--- One RSVP per email per event. First collapse any pre-existing duplicates
--- (keep the earliest row) so the unique index can be created, then enforce it
--- case-insensitively. NULL-email rows (legacy) are ignored.
-delete from public.event_rsvps a
-  using public.event_rsvps b
-  where a.email is not null and b.email is not null
-    and a.event_id = b.event_id
-    and lower(a.email) = lower(b.email)
-    and a.ctid > b.ctid;
-
-create unique index if not exists uniq_rsvp_event_email
-  on public.event_rsvps (event_id, lower(email))
-  where email is not null;
+-- Uniqueness is now per (event_id, user_id) — see the accounts section above.
+-- The old email-based unique index is retired: it would fight the login model
+-- (and its dedup DELETE could remove a real logged-in RSVP whose email matches
+-- a legacy anonymous row). Drop it if a previous run created it.
+drop index if exists public.uniq_rsvp_event_email;
 
 -- ============================================================
 --  RSVP verification v2 — 120s link expiry, resend, cancel, status

@@ -65,6 +65,18 @@ export function sendEventUpdate(rsvp, event) {
   });
 }
 
+/** Sent to every member when a new event is posted. */
+export function sendNewEvent(recipient, event) {
+  const name = recipient.full_name || 'there';
+  return send({
+    to_email: recipient.email,
+    to_name: name,
+    subject: `New event — ${event.title}`,
+    title: event.title,
+    message: `Hi ${name},\n\nWe just posted a new event: "${event.title}".${whenWhere(event)}\n\nHope to see you there — RSVP on the site!\n\n— The Navigators`,
+  });
+}
+
 /** Sent to an attendee when an admin removes their RSVP. */
 export function sendRsvpRemoved(rsvp, event) {
   const name = fullName(rsvp);

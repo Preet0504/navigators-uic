@@ -5,7 +5,7 @@ import { useReveal } from '../hooks/useReveal';
 import { isUpcoming, parseDate } from '../lib/format';
 import { htmlToText } from '../lib/richtext';
 import { uploadImage } from '../lib/supabase';
-import { sendEventUpdate, emailReady } from '../lib/email';
+import { sendEventUpdate, sendNewEvent, emailReady } from '../lib/email';
 import Pattern from '../components/Pattern';
 import EventCard from '../components/EventCard';
 import RichTextEditor from '../components/RichTextEditor';
@@ -14,7 +14,7 @@ const PAGE_SIZE = 9;
 const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', description: '', description_html: '', image: '/sample-event.png', faqs: [] };
 
 export default function Events() {
-  const { events, addEvent, updateEvent, isAdmin, rsvps } = useAdmin();
+  const { events, addEvent, updateEvent, isAdmin, rsvps, listMemberEmails } = useAdmin();
   const toast = useToast();
 
   const [tab, setTab] = useState('upcoming');
@@ -56,7 +56,15 @@ export default function Events() {
         Promise.allSettled(recipients.map((r) => sendEventUpdate(r, { ...payload, id: editId })));
         toast(`Event updated · notifying ${recipients.length} attendee${recipients.length > 1 ? 's' : ''}`, 'success');
       } else toast('Event updated', 'success');
-    } else toast('Event published ✦', 'success');
+    } else {
+      // New event → announce it to every signed-in member (best-effort; no-ops
+      // until the Resend email function is configured).
+      const recipients = await listMemberEmails();
+      if (recipients.length) {
+        Promise.allSettled(recipients.map((p) => sendNewEvent(p, payload)));
+        toast(`Event published ✦ · notifying ${recipients.length} member${recipients.length > 1 ? 's' : ''}`, 'success');
+      } else toast('Event published ✦', 'success');
+    }
     resetForm();
   };
 

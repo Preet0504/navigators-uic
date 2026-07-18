@@ -21,6 +21,7 @@ const TABLES = {
 
 export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
+  const [user, setUser] = useState(null); // the signed-in member (or admin), or null
   const [authReady, setAuthReady] = useState(false);
   const [backendOk, setBackendOk] = useState(isConfigured);
 
@@ -58,16 +59,30 @@ export function AdminProvider({ children }) {
   const fetchAll = useCallback(() => Promise.all(Object.keys(TABLES).map(fetchTable)), [fetchTable]);
 
   // ---- Auth session ----
+  // Anyone can sign in (members via Google, to RSVP). Admin is NO LONGER "has a
+  // session" — it's decided by the public.is_admin() allowlist check. We also
+  // mirror the signed-in user into public.profiles so admins can email members.
   useEffect(() => {
     if (!supabase) { setAuthReady(true); return; }
-    supabase.auth.getSession().then(({ data }) => {
-      setIsAdmin(Boolean(data.session));
-      setAuthReady(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setIsAdmin(Boolean(session));
-    });
-    return () => sub.subscription.unsubscribe();
+    let active = true;
+    const apply = async (session) => {
+      if (!active) return;
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        supabase.from('profiles')
+          .upsert({ id: u.id, email: u.email, full_name: u.user_metadata?.full_name || u.user_metadata?.name || null })
+          .then(() => {}, () => {}); // best-effort
+        const { data } = await supabase.rpc('is_admin');
+        if (active) setIsAdmin(Boolean(data));
+      } else {
+        setIsAdmin(false);
+      }
+      if (active) setAuthReady(true);
+    };
+    supabase.auth.getSession().then(({ data }) => apply(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => apply(session));
+    return () => { active = false; sub.subscription.unsubscribe(); };
   }, []);
 
   // ---- Initial load + realtime ----
@@ -81,6 +96,13 @@ export function AdminProvider({ children }) {
     channel.subscribe();
     return () => supabase.removeChannel(channel);
   }, [fetchAll, fetchTable]);
+
+  // event_rsvps is RLS-filtered per user (a member sees only their own rows,
+  // an admin sees all), and the initial load can run before the session has
+  // restored — so refetch it whenever the signed-in user changes.
+  useEffect(() => {
+    if (supabase && authReady) fetchTable('event_rsvps');
+  }, [user?.id, isAdmin, authReady, fetchTable]);
 
   // ---- Write helper: guards missing backend + surfaces errors ----
   const write = useCallback(async (fn) => {
@@ -101,7 +123,27 @@ export function AdminProvider({ children }) {
     if (error) return { error: error.message };
     return { ok: true };
   }, []);
-  const logout = useCallback(async () => { if (supabase) await supabase.auth.signOut(); setIsAdmin(false); }, []);
+  const logout = useCallback(async () => { if (supabase) await supabase.auth.signOut(); setIsAdmin(false); setUser(null); }, []);
+
+  // Members sign in with Google to RSVP. Redirects back to the current page;
+  // add this origin to Supabase → Authentication → URL Configuration.
+  const signInWithGoogle = useCallback(async () => {
+    if (!supabase) return { error: 'Backend not configured' };
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.href },
+    });
+    if (error) return { error: error.message };
+    return { ok: true };
+  }, []);
+
+  // Admin-only: email addresses of everyone who has signed in (for event blasts).
+  const listMemberEmails = useCallback(async () => {
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('profiles').select('email, full_name');
+    if (error) return [];
+    return (data || []).filter((p) => p.email);
+  }, []);
 
   // ---- Events ----
   const addEvent = (event) => write(() => supabase.from('events').insert([event]).select());
@@ -157,6 +199,12 @@ export function AdminProvider({ children }) {
   // Admin can manually confirm a pending RSVP (useful while confirmation emails
   // aren't being delivered).
   const confirmRsvp = (id) => write(() => supabase.from('event_rsvps').update({ status: 'confirmed' }).eq('id', id));
+  // A member cancels their own RSVP for an event (RLS lets them delete only
+  // rows where user_id = auth.uid()). Keyed by event so we don't need the row id.
+  const cancelOwnRsvp = (eventId) => {
+    if (!user) return Promise.resolve({ error: 'Not signed in' });
+    return write(() => supabase.from('event_rsvps').delete().eq('event_id', eventId).eq('user_id', user.id));
+  };
 
   // ---- Map pins (anonymous, one per browser via visitor_id) ----
   // addPin returns the inserted row so the page can remember its id locally.
@@ -183,13 +231,13 @@ export function AdminProvider({ children }) {
 
   return (
     <AdminContext.Provider value={{
-      isAdmin, authReady, backendOk, login, logout,
+      isAdmin, user, authReady, backendOk, login, logout, signInWithGoogle, listMemberEmails,
       events, addEvent, updateEvent, removeEvent,
       bibleStudies: studies, addStudy, updateStudy, removeStudy,
       leaders, addLeader, updateLeader, removeLeader,
       scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
-      rsvps, addRsvp, removeRsvp, confirmRsvp,
+      rsvps, addRsvp, removeRsvp, confirmRsvp, cancelOwnRsvp,
       pins, addPin, updatePin, removePin, removeAnyPin,
       feedback, addFeedback, approveFeedback, rejectFeedback,
     }}>

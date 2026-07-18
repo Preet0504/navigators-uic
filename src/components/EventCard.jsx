@@ -4,9 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
-import { sendRsvpConfirmation, sendRsvpRemoved, emailReady } from '../lib/email';
-import { supabase } from '../lib/supabase';
-import { getRsvp, saveRsvp, clearRsvp } from '../lib/rsvp';
+import { sendRsvpRemoved } from '../lib/email';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -30,11 +28,20 @@ function Countdown({ targetDate }) {
   return <div style={{ display: 'flex', gap: '0.4rem', marginTop: '1rem' }}>{cell(t.d, 'DAYS')}{cell(t.h, 'HRS')}{cell(t.m, 'MIN')}{cell(t.s, 'SEC')}</div>;
 }
 
-const genToken = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
 const rsvpConfirmed = (r) => r.status == null || r.status === 'confirmed'; // NULL = grandfathered
 
+// Best-effort first/last name from a Google identity.
+const nameFromUser = (u) => {
+  const m = u?.user_metadata || {};
+  const full = (m.full_name || m.name || '').trim();
+  return {
+    first_name: (m.given_name || full.split(' ')[0] || '').trim(),
+    last_name: (m.family_name || full.split(' ').slice(1).join(' ') || '').trim(),
+  };
+};
+
 export default function EventCard({ event: ev, manage = false, onEdit }) {
-  const { isAdmin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
+  const { isAdmin, user, signInWithGoogle, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
   const toast = useToast();
 
   const upcoming = isUpcoming(ev.date);
@@ -48,130 +55,51 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const eventRsvps = rsvps.filter((r) => String(r.event_id) === String(ev.id));
 
   const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights' | 'rsvpsList'
-  const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
+  const [guests, setGuests] = useState('No, just me');
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [justWent, setJustWent] = useState(false); // optimistic, before realtime catches up
 
-  // ---- RSVP identity + state for THIS browser ----
-  const [rsvp, setRsvp] = useState(() => getRsvp(ev.id));
-  const [status, setStatus] = useState(() => { const r = getRsvp(ev.id); if (!r) return 'none'; return r.token ? 'checking' : 'pending'; });
-  const [resending, setResending] = useState(false);
-  const [nowTs, setNowTs] = useState(() => Date.now());
-
-  // Verify the real status once on mount (handles confirm-on-another-device and admin removal).
-  useEffect(() => {
-    if (status !== 'checking' || !rsvp?.token || !supabase) return;
-    let active = true;
-    supabase.rpc('rsvp_status', { p_token: rsvp.token }).then(({ data, error }) => {
-      if (!active) return;
-      if (error) setStatus('pending');
-      else if (data === 'confirmed') setStatus('confirmed');
-      else if (data === 'pending') setStatus('pending');
-      else { clearRsvp(ev.id); setRsvp(null); setStatus('none'); }
-    });
-    return () => { active = false; };
-  }, [status, rsvp?.token, ev.id]);
-
-  // Tick the 120s expiry clock while pending.
-  useEffect(() => {
-    if (status !== 'pending' || !rsvp?.sentAt) return;
-    const id = setInterval(() => setNowTs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [status, rsvp?.sentAt]);
-
-  const remaining = rsvp?.sentAt ? Math.max(0, 120 - Math.floor((nowTs - rsvp.sentAt) / 1000)) : 0;
-  const mmss = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  // This member's RSVP for this event, if any. A member's `rsvps` only contains
+  // their own rows (RLS), so this is the source of truth once realtime lands.
+  const myRsvp = user ? rsvps.find((r) => String(r.event_id) === String(ev.id) && r.user_id === user.id) : null;
+  const going = Boolean(myRsvp) || justWent;
 
   const close = () => { setModal(null); setLightbox(null); };
 
-  // ---- RSVP submit (double opt-in) ----
-  const openRsvp = () => {
+  // ---- RSVP (login required; identity comes from the auth provider) ----
+  const openRsvp = async () => {
     if (ev._seed) return toast('Demo event — RSVP opens once real events are added', 'gold');
     if (ev.rsvp_url) return window.open(ev.rsvp_url, '_blank');
+    if (!user) { toast('Taking you to sign in…'); return signInWithGoogle(); }
     setModal('rsvp');
-  };
-  // Turn a live pending token into a finished RSVP: send the confirm link for
-  // double opt-in, or — when the email can't be sent (email not configured or
-  // the send failed) — confirm right away so the RSVP actually counts instead of
-  // dangling on a link that can never arrive.
-  const finalizeRsvp = async (tok, person) => {
-    const emailRes = await sendRsvpConfirmation(
-      { email: person.email, first_name: person.first_name, last_name: person.last_name },
-      ev, `${window.location.origin}/rsvp/confirm?token=${tok}`,
-    );
-    setModal(null);
-    setRsvpData({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
-    const base = { token: tok, email: person.email, first_name: person.first_name, last_name: person.last_name };
-    if (emailRes?.ok) {
-      const stored = { ...base, sentAt: Date.now() };
-      saveRsvp(ev.id, stored); setRsvp(stored); setStatus('pending'); setNowTs(Date.now());
-      return toast('Almost there — check your email and confirm within 2 minutes ✉️', 'success');
-    }
-    // No working email → confirm immediately (double opt-in isn't possible).
-    if (supabase) await supabase.rpc('confirm_rsvp', { p_token: tok });
-    saveRsvp(ev.id, base); setRsvp(base); setStatus('confirmed');
-    return toast('You’re going! 🎉 Your RSVP is confirmed.', 'success');
   };
 
   const submitRsvp = async (e) => {
     e.preventDefault();
-    const email = rsvpData.email.trim().toLowerCase();
-    if (!/@([a-z0-9-]+\.)*uic\.edu$/.test(email)) return toast('Please use your UIC email address (…@uic.edu)', 'error');
-    const token = genToken();
-    const first_name = rsvpData.firstName.trim();
-    const last_name = rsvpData.lastName.trim();
-    const person = { email, first_name, last_name };
-    const payload = { event_id: ev.id, first_name, last_name, email, bringing_guests: rsvpData.bringingGuests, status: 'pending', token };
+    if (!user) return signInWithGoogle();
+    const { first_name, last_name } = nameFromUser(user);
+    const payload = {
+      event_id: ev.id, user_id: user.id, email: user.email,
+      first_name, last_name, bringing_guests: guests, status: 'confirmed',
+    };
     setSubmitting(true);
     const res = await addRsvp(payload);
+    setSubmitting(false);
     if (res.error) {
-      // Already an RSVP for this email+event → recover instead of dead-ending.
-      if (/duplicate|unique|23505/i.test(res.error) && supabase) {
-        const { data: r, error: rerr } = await supabase.rpc('reclaim_rsvp', {
-          p_event_id: String(ev.id), p_first: first_name, p_last: last_name, p_email: email, p_guests: rsvpData.bringingGuests,
-        });
-        setSubmitting(false);
-        if (rerr) return toast('Couldn’t submit right now — please try again.', 'error');
-        if (r === 'confirmed') {
-          const stored = { token: null, email, first_name, last_name };
-          saveRsvp(ev.id, stored); setRsvp(stored); setStatus('confirmed'); setModal(null);
-          return toast('You’re already confirmed for this event — you’re all set! ✓', 'success');
-        }
-        if (r && r !== 'none') return finalizeRsvp(r, person);
-        return toast('You’ve already RSVP’d for this event with that email.', 'gold');
-      }
-      setSubmitting(false);
+      if (/duplicate|unique|23505/i.test(res.error)) { setModal(null); setJustWent(true); return toast('You’re already down for this one ✓', 'gold'); }
       return toast(res.error, 'error');
     }
-    setSubmitting(false);
-    return finalizeRsvp(token, person);
-  };
-
-  const resend = async () => {
-    if (!rsvp?.token || !supabase) return;
-    setResending(true);
-    const { data: newTok, error } = await supabase.rpc('resend_rsvp', { p_token: rsvp.token });
-    if (error || !newTok) {
-      setResending(false);
-      setStatus('checking'); // re-check: probably confirmed or cancelled
-      return toast(error ? 'Couldn’t resend right now — try again.' : 'Nothing to resend (already confirmed or cancelled).', 'gold');
-    }
-    const updated = { ...rsvp, token: newTok, sentAt: Date.now() };
-    const emailRes = await sendRsvpConfirmation({ email: rsvp.email, first_name: rsvp.first_name, last_name: rsvp.last_name }, ev, `${window.location.origin}/rsvp/confirm?token=${newTok}`);
-    saveRsvp(ev.id, updated); setRsvp(updated); setNowTs(Date.now());
-    setResending(false);
-    if (emailRes?.error || emailRes?.skipped) toast('Couldn’t send the email — check your address or try again.', 'error');
-    else toast('Fresh confirmation link sent ✉️', 'success');
+    setModal(null); setJustWent(true);
+    toast('You’re going! 🎉', 'success');
   };
 
   const cancelRsvp = async () => {
     if (!confirm('Cancel your RSVP for this event?')) return;
-    if (rsvp?.token && supabase) {
-      const { error } = await supabase.rpc('cancel_rsvp', { p_token: rsvp.token });
-      if (error) return toast('Couldn’t cancel right now — try again.', 'error');
-    }
-    clearRsvp(ev.id); setRsvp(null); setStatus('none');
+    const res = await cancelOwnRsvp(ev.id);
+    if (res.error) return toast('Couldn’t cancel right now — try again.', 'error');
+    setJustWent(false);
     toast('Your RSVP was cancelled');
   };
 
@@ -303,25 +231,13 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
           ) : upcoming ? (
             <>
               <Countdown targetDate={ev.date} />
-              {status === 'confirmed' ? (
+              {going ? (
                 <>
                   <div className="badge ec-cta-badge" style={{ marginTop: '1rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ You’re going!</div>
                   <button className="btn btn-ghost btn-sm" style={{ width: '100%', marginTop: '0.5rem' }} onClick={cancelRsvp}>Cancel RSVP</button>
                 </>
-              ) : status === 'pending' ? (
-                <>
-                  <div className="badge badge-gold ec-cta-badge" style={{ marginTop: '1rem' }}>
-                    {remaining > 0 ? `✉️ Confirm within ${mmss}` : '⌛ Link expired — resend below'}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                    <button className="btn btn-sm" style={{ flex: 1 }} onClick={resend} disabled={resending}>{resending ? 'Sending…' : 'Resend email'}</button>
-                    <button className="btn btn-ghost btn-sm" onClick={cancelRsvp}>Cancel</button>
-                  </div>
-                </>
-              ) : status === 'checking' ? (
-                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} disabled>Checking…</button>
               ) : (
-                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} onClick={openRsvp}>RSVP now</button>
+                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} onClick={openRsvp}>{user ? 'RSVP now' : 'Sign in to RSVP'}</button>
               )}
             </>
           ) : (
@@ -365,25 +281,17 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
         </div>
       )}
 
-      {/* ---- RSVP modal (double opt-in) ---- */}
+      {/* ---- RSVP modal (login required; identity from the signed-in account) ---- */}
       {modal === 'rsvp' && (
         <div className="modal-overlay" onMouseDown={close}>
-          <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submitRsvp}>
+          <form className="modal" style={{ maxWidth: 440 }} onMouseDown={(e) => e.stopPropagation()} onSubmit={submitRsvp}>
             <div className="modal-head"><h2>RSVP — {ev.title}</h2><button type="button" className="icon-btn" onClick={close}>✕</button></div>
             <div className="modal-body">
-              {!emailReady && (
-                <div style={{ background: 'rgba(225,107,42,0.12)', color: '#b4511c', border: '1px solid rgba(225,107,42,0.35)', borderRadius: 'var(--r-sm)', padding: '0.7rem 0.9rem', marginBottom: '1.1rem', fontSize: '0.85rem', fontWeight: 600 }}>
-                  Confirmation emails aren’t set up right now, so your RSVP is confirmed instantly when you submit — no email step needed.
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <div className="field" style={{ flex: '1 1 140px' }}><label>First name</label><input className="input" required value={rsvpData.firstName} onChange={(e) => setRsvpData({ ...rsvpData, firstName: e.target.value })} /></div>
-                <div className="field" style={{ flex: '1 1 140px' }}><label>Last name</label><input className="input" required value={rsvpData.lastName} onChange={(e) => setRsvpData({ ...rsvpData, lastName: e.target.value })} /></div>
-              </div>
-              <div className="field"><label>UIC email {emailReady && <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>(we’ll email a link to confirm it’s really you)</span>}</label><input className="input" type="email" required placeholder="netid@uic.edu" value={rsvpData.email} onChange={(e) => setRsvpData({ ...rsvpData, email: e.target.value })} /></div>
-              <div className="field"><label>Bringing anyone?</label><select className="select" value={rsvpData.bringingGuests} onChange={(e) => setRsvpData({ ...rsvpData, bringingGuests: e.target.value })}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
-              <button type="submit" className="btn" style={{ width: '100%' }} disabled={submitting}>{submitting ? 'Sending…' : 'Confirm RSVP'}</button>
-              {emailReady && <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.7rem', textAlign: 'center' }}>You’ll get an email with a link — it expires in 2 minutes, but you can resend a fresh one.</p>}
+              <p className="muted" style={{ fontSize: '0.9rem', marginBottom: '1.1rem' }}>
+                Signed in as <b>{user?.email}</b>. Just let us know if you’re bringing anyone.
+              </p>
+              <div className="field"><label>Bringing anyone?</label><select className="select" value={guests} onChange={(e) => setGuests(e.target.value)}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
+              <button type="submit" className="btn" style={{ width: '100%' }} disabled={submitting}>{submitting ? 'Saving…' : 'I’m going 🎉'}</button>
             </div>
           </form>
         </div>

@@ -15,8 +15,9 @@ const LINKS = [
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const { isAdmin, logout } = useAdmin();
+  const { isAdmin, user, logout, signInWithGoogle } = useAdmin();
   const location = useLocation();
+  const firstName = user?.user_metadata?.given_name || user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || '';
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -97,13 +98,16 @@ export default function Navbar() {
 
         <div className="nav-cta">
           {isAdmin && <span className="admin-pill">● Admin</span>}
-          {isAdmin && (
-            <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
-          )}
-          {!isAdmin && (
-            <Link to="/events" className="btn btn-gold btn-sm" style={{ display: 'inline-flex' }}>
-              Join us
-            </Link>
+          {user ? (
+            <>
+              {!isAdmin && <span className="muted" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Hi, {firstName}</span>}
+              <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
+            </>
+          ) : (
+            <>
+              <button className="btn btn-ghost btn-sm" onClick={signInWithGoogle}>Sign in</button>
+              <Link to="/events" className="btn btn-gold btn-sm" style={{ display: 'inline-flex' }}>Join us</Link>
+            </>
           )}
           <button
             className={`hamburger ${open ? 'open' : ''}`}
@@ -123,10 +127,10 @@ export default function Navbar() {
             {l.name}
           </Link>
         ))}
-        {isAdmin ? (
-          <button className="btn btn-ghost" style={{ marginTop: '1.5rem' }} onClick={() => { logout(); setOpen(false); }}>Sign out of admin</button>
+        {user ? (
+          <button className="btn btn-ghost" style={{ marginTop: '1.5rem' }} onClick={() => { logout(); setOpen(false); }}>{isAdmin ? 'Sign out of admin' : 'Sign out'}</button>
         ) : (
-          <Link to="/events" className="btn btn-gold" style={{ marginTop: '1.5rem' }}>Join us this week</Link>
+          <button className="btn btn-gold" style={{ marginTop: '1.5rem' }} onClick={() => { signInWithGoogle(); setOpen(false); }}>Sign in with Google</button>
         )}
       </div>
     </nav>
