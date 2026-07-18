@@ -92,7 +92,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     setModal('rsvp');
   };
   // Turn a live pending token into a finished RSVP: send the confirm link for
-  // double opt-in, or — when the email can't be sent (EmailJS not configured or
+  // double opt-in, or — when the email can't be sent (email not configured or
   // the send failed) — confirm right away so the RSVP actually counts instead of
   // dangling on a link that can never arrive.
   const finalizeRsvp = async (tok, person) => {

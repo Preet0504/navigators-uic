@@ -1,34 +1,30 @@
-import emailjs from '@emailjs/browser';
+import { supabase } from './supabase';
 import { formatDate } from './format';
 
-// EmailJS is a client-side email service (no server needed). The public key is
-// safe to expose — lock sending down in the EmailJS dashboard by allowlisting
-// your site's domain. Configure these in .env.local (see .env.example).
-const SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-const TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
-const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-
-// When keys are missing the app still works — notifications simply no-op.
-export const emailReady = Boolean(SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY);
-
-if (emailReady) emailjs.init({ publicKey: PUBLIC_KEY });
+// Email is sent by the Supabase Edge Function `send-email`, which calls Resend
+// server-side. No email-provider keys live in the browser, and there are no
+// client-origin restrictions. If the function isn't deployed yet (or Resend
+// isn't configured), sends fail gracefully and the caller falls back to
+// confirming the RSVP directly — see finalizeRsvp in EventCard.
+export const emailReady = Boolean(supabase);
 
 const fullName = (r) => `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'there';
 
 /**
  * Low-level send. Never throws — notifications are best-effort and must never
- * block or break the RSVP / admin action that triggered them. Your EmailJS
- * template should reference these variables: {{to_email}}, {{to_name}},
- * {{subject}}, {{title}}, {{message}}.
+ * block or break the RSVP / admin action that triggered them.
+ * Params: { to_email, to_name, subject, title, message }.
  */
 async function send(params) {
-  if (!emailReady) return { skipped: true };
+  if (!supabase) return { skipped: true };
   try {
-    await emailjs.send(SERVICE_ID, TEMPLATE_ID, params);
+    const { data, error } = await supabase.functions.invoke('send-email', { body: params });
+    if (error) { console.warn('Email send failed:', error); return { error: error.message || 'Email failed' }; }
+    if (data?.error) { console.warn('Email send failed:', data.error); return { error: data.error }; }
     return { ok: true };
   } catch (e) {
     console.warn('Email send failed:', e);
-    return { error: e?.text || e?.message || 'Email failed' };
+    return { error: e?.message || 'Email failed' };
   }
 }
 
