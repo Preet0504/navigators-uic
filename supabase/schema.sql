@@ -272,26 +272,6 @@ alter table public.event_rsvps alter column status set default 'pending';
 alter table public.event_rsvps add column if not exists token text;
 create index if not exists idx_rsvps_token on public.event_rsvps(token);
 
--- Confirm a pending RSVP by its emailed token. SECURITY DEFINER so it can flip
--- the row without a broad public UPDATE/SELECT policy — that keeps attendee
--- emails private while still letting a logged-out visitor confirm via the link.
-create or replace function public.confirm_rsvp(p_token text)
-returns boolean
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare n int;
-begin
-  if p_token is null or length(p_token) < 10 then return false; end if;
-  update public.event_rsvps set status = 'confirmed'
-    where token = p_token and status is distinct from 'confirmed';
-  get diagnostics n = row_count;
-  return n > 0;
-end $$;
-
-grant execute on function public.confirm_rsvp(text) to anon, authenticated;
-
 -- One RSVP per email per event. First collapse any pre-existing duplicates
 -- (keep the earliest row) so the unique index can be created, then enforce it
 -- case-insensitively. NULL-email rows (legacy) are ignored.
