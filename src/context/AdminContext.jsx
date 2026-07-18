@@ -154,6 +154,9 @@ export function AdminProvider({ children }) {
   // makes the insert fail with "new row violates row-level security policy".
   const addRsvp = (rsvp) => write(() => supabase.from('event_rsvps').insert([rsvp]));
   const removeRsvp = (id) => write(() => supabase.from('event_rsvps').delete().eq('id', id));
+  // Admin can manually confirm a pending RSVP (useful while confirmation emails
+  // aren't being delivered).
+  const confirmRsvp = (id) => write(() => supabase.from('event_rsvps').update({ status: 'confirmed' }).eq('id', id));
 
   // ---- Map pins (anonymous, one per browser via visitor_id) ----
   // addPin returns the inserted row so the page can remember its id locally.
@@ -186,7 +189,7 @@ export function AdminProvider({ children }) {
       leaders, addLeader, updateLeader, removeLeader,
       scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
-      rsvps, addRsvp, removeRsvp,
+      rsvps, addRsvp, removeRsvp, confirmRsvp,
       pins, addPin, updatePin, removePin, removeAnyPin,
       feedback, addFeedback, approveFeedback, rejectFeedback,
     }}>

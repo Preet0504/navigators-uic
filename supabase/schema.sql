@@ -389,3 +389,34 @@ begin
   return n > 0;
 end $$;
 grant execute on function public.cancel_rsvp(text) to anon, authenticated;
+
+-- Re-RSVP recovery: when someone RSVPs again with an email that already has a
+-- row for this event (e.g. an earlier attempt that was never confirmed — very
+-- common while email delivery is down), don't dead-end them. If that row is
+-- still pending, refresh it with a new token/clock and return the new token so
+-- the client can (re)send the link. If it's already confirmed, say so. Uses
+-- event_id::text so it works whatever the event_id column type is.
+create or replace function public.reclaim_rsvp(p_event_id text, p_first text, p_last text, p_email text, p_guests text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare ex record; new_tok text;
+begin
+  if p_email is null or p_email = '' or p_event_id is null then return 'none'; end if;
+  select id, status into ex from public.event_rsvps
+    where event_id::text = p_event_id and lower(email) = lower(p_email)
+    limit 1;
+  if not found then return 'none'; end if;
+  if ex.status = 'confirmed' then return 'confirmed'; end if;
+  new_tok := gen_random_uuid()::text;
+  update public.event_rsvps
+    set first_name = coalesce(nullif(p_first, ''), first_name),
+        last_name  = coalesce(nullif(p_last, ''), last_name),
+        bringing_guests = coalesce(nullif(p_guests, ''), bringing_guests),
+        token = new_tok, token_sent_at = now(), status = 'pending'
+    where id = ex.id;
+  return new_tok;
+end $$;
+grant execute on function public.reclaim_rsvp(text, text, text, text, text) to anon, authenticated;

@@ -34,7 +34,7 @@ const genToken = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()
 const rsvpConfirmed = (r) => r.status == null || r.status === 'confirmed'; // NULL = grandfathered
 
 export default function EventCard({ event: ev, manage = false, onEdit }) {
-  const { isAdmin, removeEvent, addRsvp, rsvps, removeRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
+  const { isAdmin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
   const toast = useToast();
 
   const upcoming = isUpcoming(ev.date);
@@ -43,7 +43,9 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const teaser = (ev.description || htmlToText(ev.description_html)).trim();
   const hasDetails = Boolean((ev.description_html && htmlToText(ev.description_html)) || ev.description);
   const evHighlights = highlights.filter((h) => h.event_id === ev.id);
-  const eventRsvps = rsvps.filter((r) => r.event_id === ev.id);
+  // String compare: event_id can come back as a different JS type than ev.id
+  // (e.g. bigint vs number), and a strict === would silently hide the rows.
+  const eventRsvps = rsvps.filter((r) => String(r.event_id) === String(ev.id));
 
   const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights' | 'rsvpsList'
   const [rsvpData, setRsvpData] = useState({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
@@ -101,8 +103,30 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     setSubmitting(true);
     const res = await addRsvp(payload);
     if (res.error) {
+      // Already an RSVP for this email+event → recover instead of dead-ending.
+      if (/duplicate|unique|23505/i.test(res.error) && supabase) {
+        const { data: r, error: rerr } = await supabase.rpc('reclaim_rsvp', {
+          p_event_id: String(ev.id), p_first: payload.first_name, p_last: payload.last_name, p_email: email, p_guests: payload.bringing_guests,
+        });
+        if (rerr) { setSubmitting(false); return toast('Couldn’t submit right now — please try again.', 'error'); }
+        if (r === 'confirmed') {
+          const stored = { token: null, email, first_name: payload.first_name, last_name: payload.last_name };
+          saveRsvp(ev.id, stored); setRsvp(stored); setStatus('confirmed'); setModal(null); setSubmitting(false);
+          return toast('You’re already confirmed for this event — you’re all set! ✓', 'success');
+        }
+        if (r && r !== 'none') {
+          const stored = { token: r, email, first_name: payload.first_name, last_name: payload.last_name, sentAt: Date.now() };
+          const emailRes = await sendRsvpConfirmation({ email, first_name: payload.first_name, last_name: payload.last_name }, ev, `${window.location.origin}/rsvp/confirm?token=${r}`);
+          saveRsvp(ev.id, stored); setRsvp(stored); setStatus('pending'); setNowTs(Date.now()); setModal(null);
+          setRsvpData({ firstName: '', lastName: '', email: '', bringingGuests: 'No, just me' });
+          setSubmitting(false);
+          if (emailRes?.error || emailRes?.skipped) return toast('RSVP updated — but we couldn’t email the link. Please reach out to confirm.', 'gold');
+          return toast('We re-sent your confirmation link — check your email ✉️', 'success');
+        }
+        setSubmitting(false);
+        return toast('You’ve already RSVP’d for this event with that email.', 'gold');
+      }
       setSubmitting(false);
-      if (/duplicate|unique|23505/i.test(res.error)) return toast('You’ve already RSVP’d for this event with that email.', 'gold');
       return toast(res.error, 'error');
     }
     const stored = { token, email, first_name: payload.first_name, last_name: payload.last_name, sentAt: Date.now() };
@@ -157,6 +181,10 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     if (res.error) return toast(res.error, 'error');
     if (r.email) sendRsvpRemoved(r, ev);
     toast('RSVP removed', 'success');
+  };
+  const confirmRsvpHandler = async (r) => {
+    const res = await confirmRsvp(r.id);
+    res.error ? toast(res.error, 'error') : toast(`${r.first_name || 'RSVP'} marked confirmed ✓`, 'success');
   };
   const exportCsv = () => {
     if (!eventRsvps.length) return toast('No RSVPs to export yet', 'gold');
@@ -373,7 +401,10 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
                             ? <span className="badge" style={{ background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ Confirmed</span>
                             : <span className="badge badge-gold">Pending</span>}
                         </td>
-                        <td style={{ padding: '0.6rem 0.8rem', textAlign: 'right' }}><button className="btn btn-sm btn-danger" onClick={() => removeRsvpHandler(r)} title="Remove RSVP (emails the attendee)">Remove</button></td>
+                        <td style={{ padding: '0.6rem 0.8rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {!rsvpConfirmed(r) && <button className="btn btn-sm" style={{ marginRight: '0.4rem' }} onClick={() => confirmRsvpHandler(r)} title="Manually confirm this RSVP">Confirm</button>}
+                          <button className="btn btn-sm btn-danger" onClick={() => removeRsvpHandler(r)} title="Remove RSVP (emails the attendee)">Remove</button>
+                        </td>
                       </tr>
                     ))}
                     {eventRsvps.length === 0 && <tr><td colSpan="6" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
