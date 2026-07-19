@@ -141,7 +141,18 @@ export function AdminProvider({ children }) {
     if (error) return { error: error.message };
     return { ok: true };
   }, []);
-  const logout = useCallback(async () => { if (supabase) await supabase.auth.signOut(); setIsAdmin(false); setUser(null); }, []);
+  const logout = useCallback(async () => {
+    // Clear local state first so the UI signs out instantly and never hangs on
+    // a network call. `scope: 'local'` drops the stored session without a server
+    // round-trip — avoiding a token-revocation race where an in-flight read uses
+    // the just-revoked token, 401s, and drops the app into its seed fallback.
+    setIsAdmin(false);
+    setUser(null);
+    try {
+      if (supabase) await supabase.auth.signOut({ scope: 'local' });
+    } catch { /* already cleared locally */ }
+    fetchAll(); // reload public data as an anonymous visitor (real content, not seed)
+  }, [fetchAll]);
 
   // Members sign in with Google to RSVP. Redirects back to the current page;
   // add this origin to Supabase → Authentication → URL Configuration.
