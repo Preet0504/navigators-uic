@@ -57,8 +57,9 @@ export default function Events() {
         toast(`Event updated · notifying ${recipients.length} attendee${recipients.length > 1 ? 's' : ''}`, 'success');
       } else toast('Event updated', 'success');
     } else {
-      // New event → announce it to every signed-in member (best-effort; no-ops
-      // until the Resend email function is configured).
+      // New event → announce it to every user who has ever signed in (their
+      // email is in `profiles`). Best-effort via EmailJS; no-ops if EmailJS
+      // isn't configured or its allowlist blocks the current domain.
       const recipients = await listMemberEmails();
       if (recipients.length) {
         Promise.allSettled(recipients.map((p) => sendNewEvent(p, payload)));
