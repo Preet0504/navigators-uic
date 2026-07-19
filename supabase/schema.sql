@@ -140,7 +140,7 @@ alter table public.leaders       enable row level security;
 create table if not exists public.admins ( email text primary key );
 
 -- >>> EDIT ME before running: seed your admin email(s). Idempotent.
-insert into public.admins(email) values ('YOUR-ADMIN-EMAIL@example.com')
+insert into public.admins(email) values ('kingpreetpatel@gmail.com')
   on conflict (email) do nothing;
 
 -- Is the current user an admin? SECURITY DEFINER so it can read the allowlist

@@ -111,13 +111,13 @@ export default function Events() {
           </div>
         </header>
 
-        {/* Admin diagnostic: the backend must be configured for RSVPs (and the
-            email function) to work at all. */}
+        {/* Admin diagnostic: notification emails need EmailJS configured. RSVPs
+            themselves never depend on email (sign-in verifies identity). */}
         {isAdmin && !emailReady && (
           <div className="card" style={{ padding: '1rem 1.2rem', marginBottom: '1.5rem', border: '1px solid var(--orange)', background: 'rgba(225,107,42,0.08)' }}>
-            <strong style={{ color: '#b4511c' }}>⚠️ Backend is not configured on this deployment.</strong>
+            <strong style={{ color: '#b4511c' }}>⚠️ Email is not configured on this deployment.</strong>
             <p className="muted" style={{ fontSize: '0.88rem', marginTop: '0.35rem' }}>
-              Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to your Vercel environment (the <b>Production</b> environment) and redeploy. Confirmation and notification emails are sent by the Supabase <code>send-email</code> function via Resend — set its <code>RESEND_API_KEY</code> secret in the Supabase dashboard. If email isn’t set up, RSVPs still work (they confirm instantly).
+              New-event and update emails to members can’t be sent. Add <code>VITE_EMAILJS_SERVICE_ID</code>, <code>VITE_EMAILJS_TEMPLATE_ID</code> and <code>VITE_EMAILJS_PUBLIC_KEY</code> to your Vercel environment (the <b>Production</b> environment) and redeploy. (RSVPs work regardless.)
             </p>
           </div>
         )}
