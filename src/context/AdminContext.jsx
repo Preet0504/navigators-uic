@@ -160,10 +160,24 @@ export function AdminProvider({ children }) {
     if (!supabase) return { error: 'Backend not configured' };
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.href },
+      // Return to the current page without any leftover query/hash.
+      options: { redirectTo: `${window.location.origin}${window.location.pathname}` },
     });
     if (error) return { error: error.message };
     return { ok: true };
+  }, []);
+
+  // Member email/password sign-up. If Supabase has email confirmation enabled,
+  // there's no session yet (needsConfirmation) — they confirm via email first.
+  const signUpWithEmail = useCallback(async (name, email, password) => {
+    if (!supabase) return { error: 'Backend not configured' };
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: name.trim() } },
+    });
+    if (error) return { error: error.message };
+    return { ok: true, needsConfirmation: !data.session };
   }, []);
 
   const openLogin = useCallback(() => setLoginOpen(true), []);
@@ -263,7 +277,7 @@ export function AdminProvider({ children }) {
 
   return (
     <AdminContext.Provider value={{
-      isAdmin, user, authReady, backendOk, login, logout, signInWithGoogle, listMemberEmails,
+      isAdmin, user, authReady, backendOk, login, logout, signInWithGoogle, signUpWithEmail, listMemberEmails,
       loginOpen, openLogin, closeLogin,
       events, addEvent, updateEvent, removeEvent,
       bibleStudies: studies, addStudy, updateStudy, removeStudy,

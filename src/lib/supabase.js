@@ -21,9 +21,15 @@ export const supabase = isConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        // sessionStorage (not localStorage): the admin session dies with the
-        // browser session, so closing the browser always forces a fresh sign-in.
-        // A refresh within the same tab still keeps you signed in.
+        // PKCE flow: OAuth returns a short-lived `?code=` that we exchange for a
+        // session, instead of the implicit flow's `#access_token=…` sitting in
+        // the URL (which leaks via history/referrer). detectSessionInUrl then
+        // completes the exchange and strips the code from the address bar.
+        flowType: 'pkce',
+        detectSessionInUrl: true,
+        // sessionStorage (not localStorage): the session dies with the browser
+        // session, so closing the browser forces a fresh sign-in. A refresh
+        // within the same tab keeps you signed in.
         storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
       },
     })
