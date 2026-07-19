@@ -7,6 +7,21 @@ export function useAdmin() {
   return useContext(AdminContext);
 }
 
+// True only when the session was established with an email+password login (the
+// hidden Ctrl+Shift+A admin portal), not Google OAuth. Admin access is gated to
+// that portal, so a Google sign-in — even by an allowlisted email — stays a
+// regular member. Reads the token's `amr` (auth-method) claim; fails open only
+// if the token can't be parsed, so the admin is never locked out.
+function loggedInWithPassword(session) {
+  try {
+    const amr = JSON.parse(atob(session.access_token.split('.')[1]))?.amr;
+    if (!Array.isArray(amr) || amr.length === 0) return true;
+    return amr.some((m) => m?.method === 'password');
+  } catch {
+    return true;
+  }
+}
+
 // Tables we read/subscribe to.
 const TABLES = {
   events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: SEED_EVENTS },
@@ -74,7 +89,8 @@ export function AdminProvider({ children }) {
           .upsert({ id: u.id, email: u.email, full_name: u.user_metadata?.full_name || u.user_metadata?.name || null })
           .then(() => {}, () => {}); // best-effort
         const { data } = await supabase.rpc('is_admin');
-        if (active) setIsAdmin(Boolean(data));
+        // Allowlisted AND signed in via the password portal (not Google).
+        if (active) setIsAdmin(Boolean(data) && loggedInWithPassword(session));
       } else {
         setIsAdmin(false);
       }
