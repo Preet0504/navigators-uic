@@ -4,7 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
-import { sendRsvpRemoved } from '../lib/email';
+import { sendRsvpRemoved, sendRsvpConfirmed } from '../lib/email';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -92,6 +92,8 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
       return toast(res.error, 'error');
     }
     setModal(null); setJustWent(true);
+    // Best-effort confirmation email to the attendee (never blocks the RSVP).
+    sendRsvpConfirmed({ email: user.email, first_name, last_name, bringing_guests: guests }, ev);
     toast('You’re going! 🎉', 'success');
   };
 

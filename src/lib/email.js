@@ -52,6 +52,19 @@ export function sendNewEvent(recipient, event) {
   });
 }
 
+/** Sent to the attendee themselves right after they RSVP. */
+export function sendRsvpConfirmed(rsvp, event) {
+  const name = fullName(rsvp);
+  const guestLine = rsvp.bringing_guests && rsvp.bringing_guests !== 'No, just me' ? `\nGuests: ${rsvp.bringing_guests}` : '';
+  return send({
+    to_email: rsvp.email,
+    to_name: name,
+    subject: `You’re going — ${event.title}`,
+    title: event.title,
+    message: `Hi ${name},\n\nYou’re confirmed for "${event.title}" 🎉${whenWhere(event)}${guestLine}\n\nCan’t make it after all? You can cancel your RSVP anytime on the site.\n\nSee you there!\n\n— The Navigators`,
+  });
+}
+
 /** Sent to every attendee when an admin edits the event. */
 export function sendEventUpdate(rsvp, event) {
   const name = fullName(rsvp);
