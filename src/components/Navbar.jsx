@@ -15,7 +15,7 @@ const LINKS = [
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const { isAdmin, user, logout, signInWithGoogle } = useAdmin();
+  const { isAdmin, user, logout, openLogin } = useAdmin();
   const location = useLocation();
   const firstName = user?.user_metadata?.given_name || user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || '';
 
@@ -105,7 +105,7 @@ export default function Navbar() {
             </>
           ) : (
             <>
-              <button className="btn btn-ghost btn-sm" onClick={signInWithGoogle}>Sign in</button>
+              <button className="btn btn-ghost btn-sm" onClick={openLogin}>Sign in</button>
               <Link to="/events" className="btn btn-gold btn-sm" style={{ display: 'inline-flex' }}>Join us</Link>
             </>
           )}
@@ -130,7 +130,7 @@ export default function Navbar() {
         {user ? (
           <button className="btn btn-ghost" style={{ marginTop: '1.5rem' }} onClick={() => { logout(); setOpen(false); }}>{isAdmin ? 'Sign out of admin' : 'Sign out'}</button>
         ) : (
-          <button className="btn btn-gold" style={{ marginTop: '1.5rem' }} onClick={() => { signInWithGoogle(); setOpen(false); }}>Sign in with Google</button>
+          <button className="btn btn-gold" style={{ marginTop: '1.5rem' }} onClick={() => { openLogin(); setOpen(false); }}>Sign in</button>
         )}
       </div>
     </nav>

@@ -41,7 +41,7 @@ const nameFromUser = (u) => {
 };
 
 export default function EventCard({ event: ev, manage = false, onEdit }) {
-  const { isAdmin, user, signInWithGoogle, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
+  const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
   const toast = useToast();
 
   const upcoming = isUpcoming(ev.date);
@@ -72,13 +72,13 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const openRsvp = async () => {
     if (ev._seed) return toast('Demo event — RSVP opens once real events are added', 'gold');
     if (ev.rsvp_url) return window.open(ev.rsvp_url, '_blank');
-    if (!user) { toast('Taking you to sign in…'); return signInWithGoogle(); }
+    if (!user) return openLogin();
     setModal('rsvp');
   };
 
   const submitRsvp = async (e) => {
     e.preventDefault();
-    if (!user) return signInWithGoogle();
+    if (!user) return openLogin();
     const { first_name, last_name } = nameFromUser(user);
     const payload = {
       event_id: ev.id, user_id: user.id, email: user.email,

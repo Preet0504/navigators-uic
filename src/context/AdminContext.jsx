@@ -37,6 +37,7 @@ const TABLES = {
 export function AdminProvider({ children }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [user, setUser] = useState(null); // the signed-in member (or admin), or null
+  const [loginOpen, setLoginOpen] = useState(false); // member sign-in modal
   const [authReady, setAuthReady] = useState(false);
   const [backendOk, setBackendOk] = useState(isConfigured);
 
@@ -84,6 +85,7 @@ export function AdminProvider({ children }) {
       if (!active) return;
       const u = session?.user ?? null;
       setUser(u);
+      if (u) setLoginOpen(false); // close the sign-in modal once signed in
       if (u) {
         supabase.from('profiles')
           .upsert({ id: u.id, email: u.email, full_name: u.user_metadata?.full_name || u.user_metadata?.name || null })
@@ -152,6 +154,9 @@ export function AdminProvider({ children }) {
     if (error) return { error: error.message };
     return { ok: true };
   }, []);
+
+  const openLogin = useCallback(() => setLoginOpen(true), []);
+  const closeLogin = useCallback(() => setLoginOpen(false), []);
 
   // Admin-only: email addresses of everyone who has signed in (for event blasts).
   const listMemberEmails = useCallback(async () => {
@@ -248,6 +253,7 @@ export function AdminProvider({ children }) {
   return (
     <AdminContext.Provider value={{
       isAdmin, user, authReady, backendOk, login, logout, signInWithGoogle, listMemberEmails,
+      loginOpen, openLogin, closeLogin,
       events, addEvent, updateEvent, removeEvent,
       bibleStudies: studies, addStudy, updateStudy, removeStudy,
       leaders, addLeader, updateLeader, removeLeader,

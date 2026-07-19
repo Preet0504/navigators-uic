@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import AdminPortal from './components/AdminPortal';
+import LoginModal from './components/LoginModal';
 import Home from './pages/Home';
 import Events from './pages/Events';
 import BibleStudies from './pages/BibleStudies';
@@ -35,6 +36,7 @@ function App() {
             </main>
             <Footer />
             <AdminPortal />
+            <LoginModal />
           </div>
         </BrowserRouter>
       </AdminProvider>
