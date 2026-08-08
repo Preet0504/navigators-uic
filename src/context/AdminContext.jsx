@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, isConfigured, uploadHighlight, removeHighlightFile } from '../lib/supabase';
-import { SEED_EVENTS, SEED_STUDIES, SEED_LEADERS, SEED_SCORES, SEED_PINS, SEED_FEEDBACK } from '../data/seed';
+import { SEED_EVENTS, SEED_PINS, SEED_FEEDBACK } from '../data/seed';
 
 const AdminContext = createContext();
 export function useAdmin() {
@@ -25,11 +25,8 @@ function loggedInWithPassword(session) {
 // Tables we read/subscribe to.
 const TABLES = {
   events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: SEED_EVENTS },
-  bible_studies: { setter: 'setStudies', order: { column: 'created_at', ascending: false }, seed: SEED_STUDIES },
-  scores: { setter: 'setScores', order: { column: 'created_at', ascending: false }, seed: SEED_SCORES },
   highlights: { setter: 'setHighlights', order: { column: 'created_at', ascending: false }, seed: [] },
   event_rsvps: { setter: 'setRsvps', order: { column: 'created_at', ascending: false }, seed: [] },
-  leaders: { setter: 'setLeaders', order: { column: 'sort', ascending: true }, seed: SEED_LEADERS },
   map_pins: { setter: 'setPins', order: { column: 'created_at', ascending: false }, seed: SEED_PINS },
   feedback: { setter: 'setFeedback', order: { column: 'created_at', ascending: false }, seed: SEED_FEEDBACK },
 };
@@ -42,15 +39,12 @@ export function AdminProvider({ children }) {
   const [backendOk, setBackendOk] = useState(isConfigured);
 
   const [events, setEvents] = useState(SEED_EVENTS);
-  const [studies, setStudies] = useState(SEED_STUDIES);
-  const [scores, setScores] = useState(SEED_SCORES);
   const [highlights, setHighlights] = useState([]);
   const [rsvps, setRsvps] = useState([]);
-  const [leaders, setLeaders] = useState(SEED_LEADERS);
   const [pins, setPins] = useState(SEED_PINS);
   const [feedback, setFeedback] = useState(SEED_FEEDBACK);
 
-  const setters = useRef({ setEvents, setStudies, setScores, setHighlights, setRsvps, setLeaders, setPins, setFeedback });
+  const setters = useRef({ setEvents, setHighlights, setRsvps, setPins, setFeedback });
 
   // ---- Fetch a single table, falling back to seed on error ----
   const fetchTable = useCallback(async (name) => {
@@ -196,30 +190,6 @@ export function AdminProvider({ children }) {
   const updateEvent = (id, updates) => write(() => supabase.from('events').update(updates).eq('id', id));
   const removeEvent = (id) => write(() => supabase.from('events').delete().eq('id', id));
 
-  // ---- Bible studies ----
-  const addStudy = (study) => write(() => supabase.from('bible_studies').insert([study]).select());
-  const updateStudy = (id, updates) => write(() => supabase.from('bible_studies').update(updates).eq('id', id));
-  const removeStudy = (id) => write(() => supabase.from('bible_studies').delete().eq('id', id));
-
-  // ---- Leaders ----
-  const addLeader = (leader) => write(() => supabase.from('leaders').insert([leader]).select());
-  const updateLeader = (id, updates) => write(() => supabase.from('leaders').update(updates).eq('id', id));
-  const removeLeader = (id) => write(() => supabase.from('leaders').delete().eq('id', id));
-
-  // ---- Scores ----
-  const updateWin = async (name, game, date, delta) => {
-    const existing = scores.find((s) => s.name.toLowerCase() === name.toLowerCase() && s.game === game && s.date === date);
-    if (existing && !existing._seed) {
-      const newScore = existing.score + delta;
-      if (newScore <= 0) return write(() => supabase.from('scores').delete().eq('id', existing.id));
-      return write(() => supabase.from('scores').update({ score: newScore }).eq('id', existing.id));
-    }
-    if (delta > 0) return write(() => supabase.from('scores').insert([{ name, game, date, score: delta }]).select());
-    return { ok: true };
-  };
-  const removePlayerScores = (name) => write(() => supabase.from('scores').delete().eq('name', name));
-  const removeGameScores = (game) => write(() => supabase.from('scores').delete().eq('game', game));
-
   // ---- Highlights (stored in Supabase Storage) ----
   const addHighlight = async (eventId, file) => {
     if (!supabase) return { error: 'Backend not configured' };
@@ -280,9 +250,6 @@ export function AdminProvider({ children }) {
       isAdmin, user, authReady, backendOk, login, logout, signInWithGoogle, signUpWithEmail, listMemberEmails,
       loginOpen, openLogin, closeLogin,
       events, addEvent, updateEvent, removeEvent,
-      bibleStudies: studies, addStudy, updateStudy, removeStudy,
-      leaders, addLeader, updateLeader, removeLeader,
-      scores, updateWin, removePlayerScores, removeGameScores,
       highlights, addHighlight, removeHighlight,
       rsvps, addRsvp, removeRsvp, confirmRsvp, cancelOwnRsvp,
       pins, addPin, updatePin, removePin, removeAnyPin,

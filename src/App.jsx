@@ -6,9 +6,7 @@ import AdminPortal from './components/AdminPortal';
 import LoginModal from './components/LoginModal';
 import Home from './pages/Home';
 import Events from './pages/Events';
-import BibleStudies from './pages/BibleStudies';
-import ColdBrew from './pages/ColdBrew';
-import People from './pages/People';
+import WeeklyGathering from './pages/WeeklyGathering';
 // Code-split: the world map pulls in d3-geo, the world atlas and the full
 // country/state dataset — heavy deps that only this page needs, so they load
 // on demand instead of bloating every other page's initial bundle.
@@ -28,9 +26,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/events" element={<Events />} />
-                <Route path="/bible-studies" element={<BibleStudies />} />
-                <Route path="/cold-brew" element={<ColdBrew />} />
-                <Route path="/people" element={<People />} />
+                <Route path="/weekly-gathering" element={<WeeklyGathering />} />
                 <Route path="/community" element={<Suspense fallback={<div className="page container" style={{ textAlign: 'center', paddingTop: 'calc(var(--nav-h) + 4rem)' }}><span className="badge badge-soft">Loading the map…</span></div>}><Community /></Suspense>} />
               </Routes>
             </main>

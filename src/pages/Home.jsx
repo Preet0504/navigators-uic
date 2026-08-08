@@ -10,9 +10,8 @@ import { RESOURCES } from '../data/resources';
 
 const QUICK = [
   { to: '/events', label: 'Events', desc: 'Bonfires, retreats & weekly hangs', accent: 'var(--orange)', icon: '✦' },
-  { to: '/bible-studies', label: 'Bible Studies', desc: 'Dig in together, no experience needed', accent: 'var(--teal)', icon: '✚' },
-  { to: '/cold-brew', label: 'Cold Brew Arena', desc: 'Game-night leaderboard glory', accent: 'var(--purple)', icon: '♛' },
-  { to: '/people', label: 'Meet the Team', desc: 'The humans who’d love to know you', accent: 'var(--blue)', icon: '☻' },
+  { to: '/weekly-gathering', label: 'Weekly Gathering', desc: 'Bible studies & Cold Brew game nights', accent: 'var(--teal)', icon: '✚' },
+  { to: '/community', label: 'Community', desc: 'See where our people call home', accent: 'var(--blue)', icon: '☻' },
 ];
 
 const VALUES = [
@@ -104,7 +103,7 @@ export default function Home() {
           </p>
           <div style={{ display: 'flex', gap: '0.9rem', flexWrap: 'wrap' }}>
             <Link to="/events" className="btn btn-gold">See what’s happening →</Link>
-            <Link to="/people" className="btn btn-outline-light">Meet the team</Link>
+            <Link to="/weekly-gathering" className="btn btn-outline-light">Weekly Gathering</Link>
           </div>
           <div className="stat-row">
             <div className="stat"><b>4</b><span>nights a week</span></div>
