@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import BrandLogo from './BrandLogo';
 import Pattern from './Pattern';
-import { RESOURCES } from '../data/resources';
+import { NAVIGATORS_ORG } from '../data/resources';
 
 export default function Footer() {
   return (
@@ -25,9 +25,7 @@ export default function Footer() {
 
         <div>
           <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>The Navigators</h4>
-          {RESOURCES.map((r) => (
-            <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>{r.label} ↗</a>
-          ))}
+          <a href={NAVIGATORS_ORG.href} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>{NAVIGATORS_ORG.label} ↗</a>
         </div>
 
         <div>

@@ -6,7 +6,7 @@ import { isUpcoming, parseDate } from '../lib/format';
 import BrandLogo from '../components/BrandLogo';
 import Pattern from '../components/Pattern';
 import EventCard from '../components/EventCard';
-import { RESOURCES } from '../data/resources';
+import { NAVIGATORS_ORG } from '../data/resources';
 
 const QUICK = [
   { to: '/events', label: 'Events', desc: 'Bonfires, retreats & weekly hangs', accent: 'var(--orange)', icon: '✦' },
@@ -174,20 +174,15 @@ export default function Home() {
         <div className="reveal center" style={{ marginBottom: '2rem' }}>
           <span className="eyebrow" style={{ justifyContent: 'center' }}>Beyond campus</span>
           <h2 className="section-title">Explore The Navigators</h2>
-          <p className="section-sub" style={{ margin: '0.4rem auto 0' }}>We’re one campus chapter of a worldwide ministry. Dive deeper, get involved, or give.</p>
         </div>
-        <div className="res-grid">
-          {RESOURCES.map((r, i) => (
-            <a key={r.href} href={r.href} target="_blank" rel="noopener noreferrer" className="res-card reveal" style={{ background: r.grad, transitionDelay: `${i * 60}ms` }}>
-              <span className="res-glyph" aria-hidden="true">{r.icon}</span>
-              <div className="res-body">
-                <h3>{r.label}</h3>
-                <p>{r.desc}</p>
-              </div>
-              <span className="res-cta">Visit navigators.org <span className="res-arrow">↗</span></span>
-            </a>
-          ))}
-        </div>
+        <a href={NAVIGATORS_ORG.href} target="_blank" rel="noopener noreferrer" className="res-card reveal" style={{ background: NAVIGATORS_ORG.grad, maxWidth: 520, margin: '0 auto' }}>
+          <span className="res-glyph" aria-hidden="true">{NAVIGATORS_ORG.icon}</span>
+          <div className="res-body">
+            <h3>{NAVIGATORS_ORG.label}</h3>
+            <p>{NAVIGATORS_ORG.desc}</p>
+          </div>
+          <span className="res-cta">Visit navigators.org <span className="res-arrow">↗</span></span>
+        </a>
       </section>
 
       {/* CTA */}
