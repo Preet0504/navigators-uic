@@ -52,12 +52,32 @@ export default function Home() {
         .stat span { font-size: 0.85rem; color: #bfe0de; }
 
         .quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap: 1.2rem; }
-        .quick-card { position: relative; display: block; padding: 1.6rem; border-radius: var(--r-md); background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow-sm); transition: transform .3s var(--ease), box-shadow .3s var(--ease); overflow: hidden; }
-        .quick-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-md); }
-        .quick-card .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; }
-        .quick-card .ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 1.3rem; color: #fff; margin-bottom: 0.9rem; }
-        .quick-card h3 { font-size: 1.25rem; margin-bottom: 0.3rem; }
-        .quick-card .go { margin-top: 0.8rem; font-size: 0.85rem; font-weight: 700; color: var(--teal); }
+        .quick-card {
+          position: relative; isolation: isolate; display: block; padding: 1.8rem 1.7rem; min-height: 190px;
+          border-radius: var(--r-lg); background: #fff; border: 1px solid var(--border); overflow: hidden;
+          box-shadow: var(--shadow-sm); transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
+        }
+        .quick-card::before {
+          content: ''; position: absolute; inset: 0; z-index: -2;
+          background: linear-gradient(155deg, var(--qc-accent) 0%, transparent 60%); opacity: 0.08;
+          transition: opacity .3s var(--ease);
+        }
+        .quick-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-md); border-color: transparent; }
+        .quick-card:hover::before { opacity: 0.14; }
+        .quick-card .qc-glyph {
+          position: absolute; right: -0.4rem; bottom: -1.6rem; z-index: -1; font-size: 7rem; line-height: 1;
+          color: var(--qc-accent); opacity: 0.14; transform: rotate(-8deg); transition: transform .45s var(--ease);
+          pointer-events: none;
+        }
+        .quick-card:hover .qc-glyph { transform: rotate(0deg) scale(1.08); }
+        .quick-card .ic {
+          width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; font-size: 1.5rem;
+          color: #fff; background: var(--qc-accent); margin-bottom: 1.1rem; box-shadow: 0 8px 18px -6px var(--qc-accent);
+        }
+        .quick-card h3 { font-size: 1.3rem; margin-bottom: 0.35rem; }
+        .quick-card .go { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 1rem; font-size: 0.85rem; font-weight: 700; color: var(--qc-accent); }
+        .quick-card .go span { transition: transform .3s var(--ease); }
+        .quick-card:hover .go span { transform: translateX(3px); }
 
         .ev-card { display: flex; gap: 1rem; padding: 1rem; align-items: center; }
         .ev-date { flex-shrink: 0; width: 64px; text-align: center; background: var(--teal); color: #fff; border-radius: var(--r-sm); padding: 0.6rem 0; }
@@ -70,23 +90,29 @@ export default function Home() {
 
         .cta-band { position: relative; margin: 0 1rem; border-radius: var(--r-lg); overflow: hidden; background: linear-gradient(120deg, var(--gold) 0%, #e7b94e 100%); color: #2a2207; text-align: center; padding: clamp(2.5rem,5vw,4rem) 1.5rem; }
 
-        .res-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 1.3rem; }
-        .res-card {
-          position: relative; overflow: hidden; isolation: isolate;
-          display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem;
-          min-height: 220px; padding: 1.7rem; border-radius: var(--r-lg); color: #fff;
+        .res-banner {
+          position: relative; overflow: hidden; isolation: isolate; display: flex; width: 100%;
+          align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;
+          padding: clamp(1.8rem,4vw,2.6rem) clamp(1.8rem,4vw,3rem); border-radius: var(--r-lg); color: #fff;
           box-shadow: var(--shadow-md);
           transition: transform .35s var(--ease), box-shadow .35s var(--ease);
         }
-        .res-card::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(160deg, rgba(255,255,255,0.18), transparent 46%); }
-        .res-card:hover { transform: translateY(-8px) scale(1.015); box-shadow: var(--shadow-lg); }
-        .res-glyph { position: absolute; right: -0.6rem; bottom: -1.8rem; font-size: 8.5rem; line-height: 1; opacity: 0.17; transform: rotate(-8deg); transition: transform .45s var(--ease); pointer-events: none; }
-        .res-card:hover .res-glyph { transform: rotate(0deg) scale(1.08); }
-        .res-body h3 { color: #fff; font-size: 1.5rem; margin-bottom: 0.35rem; }
-        .res-body p { color: rgba(255,255,255,0.92); font-size: 0.92rem; line-height: 1.5; }
-        .res-cta { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.02em; }
+        .res-banner::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(160deg, rgba(255,255,255,0.18), transparent 46%); }
+        .res-banner:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+        .res-glyph { position: absolute; right: 1rem; bottom: -2.2rem; font-size: 9rem; line-height: 1; opacity: 0.15; transform: rotate(-8deg); transition: transform .45s var(--ease); pointer-events: none; }
+        .res-banner:hover .res-glyph { transform: rotate(0deg) scale(1.08); }
+        .res-banner-body { display: flex; align-items: center; gap: 1.2rem; }
+        .res-banner-ic { flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-size: 1.5rem; background: rgba(255,255,255,0.18); }
+        .res-banner h3 { color: #fff; font-size: 1.4rem; margin-bottom: 0.3rem; }
+        .res-banner p { color: rgba(255,255,255,0.92); font-size: 0.92rem; line-height: 1.5; max-width: 46ch; }
+        .res-cta {
+          flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.9rem;
+          letter-spacing: 0.02em; background: rgba(255,255,255,0.16); padding: 0.7rem 1.2rem; border-radius: var(--r-pill);
+          transition: background .3s var(--ease);
+        }
+        .res-banner:hover .res-cta { background: rgba(255,255,255,0.26); }
         .res-arrow { transition: transform .3s var(--ease); }
-        .res-card:hover .res-arrow { transform: translate(3px, -3px); }
+        .res-banner:hover .res-arrow { transform: translate(3px, -3px); }
       `}</style>
 
       {/* HERO */}
@@ -121,12 +147,12 @@ export default function Home() {
         </div>
         <div className="quick-grid">
           {QUICK.map((q, i) => (
-            <Link to={q.to} key={q.to} className="quick-card reveal" style={{ transitionDelay: `${i * 60}ms` }}>
-              <span className="bar" style={{ background: q.accent }} />
-              <span className="ic" style={{ background: q.accent }}>{q.icon}</span>
+            <Link to={q.to} key={q.to} className="quick-card reveal" style={{ '--qc-accent': q.accent, transitionDelay: `${i * 60}ms` }}>
+              <span className="qc-glyph" aria-hidden="true">{q.icon}</span>
+              <span className="ic">{q.icon}</span>
               <h3>{q.label}</h3>
               <p className="muted" style={{ fontSize: '0.92rem' }}>{q.desc}</p>
-              <div className="go">Explore →</div>
+              <div className="go">Explore <span>→</span></div>
             </Link>
           ))}
         </div>
@@ -175,13 +201,16 @@ export default function Home() {
           <span className="eyebrow" style={{ justifyContent: 'center' }}>Beyond campus</span>
           <h2 className="section-title">Explore The Navigators</h2>
         </div>
-        <a href={NAVIGATORS_ORG.href} target="_blank" rel="noopener noreferrer" className="res-card reveal" style={{ background: NAVIGATORS_ORG.grad, maxWidth: 520, margin: '0 auto' }}>
+        <a href={NAVIGATORS_ORG.href} target="_blank" rel="noopener noreferrer" className="res-banner reveal" style={{ background: NAVIGATORS_ORG.grad }}>
           <span className="res-glyph" aria-hidden="true">{NAVIGATORS_ORG.icon}</span>
-          <div className="res-body">
-            <h3>{NAVIGATORS_ORG.label}</h3>
-            <p>{NAVIGATORS_ORG.desc}</p>
+          <div className="res-banner-body">
+            <span className="res-banner-ic" aria-hidden="true">{NAVIGATORS_ORG.icon}</span>
+            <div>
+              <h3>{NAVIGATORS_ORG.label}</h3>
+              <p>{NAVIGATORS_ORG.desc}</p>
+            </div>
           </div>
-          <span className="res-cta">Visit navigators.org <span className="res-arrow">↗</span></span>
+          <span className="res-cta">Visit site <span className="res-arrow">↗</span></span>
         </a>
       </section>
 
