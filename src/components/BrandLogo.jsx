@@ -1,40 +1,29 @@
 import React from 'react';
 
+// Real dimensions of the source cutouts (public/logo-lockup.png,
+// public/logo-icon.png) — used to size the <img> by aspect ratio.
+const LOCKUP_RATIO = 1058 / 286;
+
 /**
- * Official Navigators brand mark — the gold ring + sail (with ®), served from
- * public/logo.svg. The source was cleaned to gold-only, transparent paths so it
- * sits correctly on any background (light navbar, dark teal footer/hero).
+ * Official Navigators brand mark, used exactly as supplied (the national
+ * ministry's own artwork — gold ring + sail, teal "navigators®" wordmark).
+ * Background removed for transparency; otherwise unedited. Since the mark's
+ * colors are fixed in the image, it's used as-is on every background —
+ * no recoloring for dark surfaces.
  *
- * @param {boolean} wordmark  show the "navigators" wordmark next to the mark
- * @param {boolean} light     render the wordmark in white (for dark backgrounds)
+ * @param {boolean} wordmark  true: full mark + "navigators®" wordmark (logo-lockup.png).
+ *                            false: mark only (logo-icon.png), for tight/square spots.
  */
-export default function BrandLogo({ size = 38, wordmark = true, light = false, className = '' }) {
-  const wordColor = light ? '#ffffff' : '#008c95';
+export default function BrandLogo({ size = 38, wordmark = true, className = '' }) {
   return (
-    <span className={`brand-logo ${className}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.6rem' }}>
+    <span className={`brand-logo ${className}`} style={{ display: 'inline-flex', alignItems: 'center' }}>
       <img
-        src="/logo.svg"
+        src={wordmark ? '/logo-lockup.png' : '/logo-icon.png'}
         alt="Navigators"
-        width={size}
         height={size}
-        style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+        width={wordmark ? Math.round(size * LOCKUP_RATIO) : size}
+        style={{ display: 'block', height: size, width: 'auto', maxWidth: '100%' }}
       />
-      {wordmark && (
-        <span
-          style={{
-            fontFamily: "'Comfortaa', 'Quicksand', sans-serif",
-            fontWeight: 600,
-            fontSize: size * 0.54,
-            letterSpacing: '0.005em',
-            color: wordColor,
-            lineHeight: 1,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          navigators
-          <sup style={{ fontSize: '0.34em', verticalAlign: 'super', fontWeight: 600, marginLeft: '0.08em' }}>®</sup>
-        </span>
-      )}
     </span>
   );
 }

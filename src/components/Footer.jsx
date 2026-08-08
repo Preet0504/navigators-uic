@@ -10,7 +10,7 @@ export default function Footer() {
       <Pattern variant="connection" color="#ffffff" opacity={0.05} />
       <div className="container" style={{ position: 'relative', padding: '3.5rem 1.5rem 2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '2.5rem' }}>
         <div>
-          <BrandLogo size={40} light />
+          <BrandLogo size={40} />
           <p style={{ marginTop: '1rem', maxWidth: '30ch', color: '#bcd6d4', fontSize: '0.95rem' }}>
             Find your people. A community of students growing in faith and friendship at the University of Illinois Chicago.
           </p>
