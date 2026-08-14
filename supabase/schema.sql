@@ -241,11 +241,18 @@ end $$;
 --  (self-contained; idempotent; safe to re-run on existing DBs)
 -- ============================================================
 
--- ---------- Map pins: visitors mark where they're from ----------
--- Identity is an anonymous per-browser token (visitor_id, a uuid kept in the
--- visitor's localStorage). One pin per browser; the visitor can update/remove
--- their own row. Pins are aggregated by location on the map, so the same
--- person on a second browser just makes their region's pin larger.
+-- ---------- Map pins: members mark where they're from ----------
+-- One pin per signed-in member; they can update/remove their own row. Pins
+-- are aggregated by location on the map, so a second pin from the same
+-- region just makes that dot bigger.
+--
+-- Identity used to be an anonymous per-browser token (visitor_id in
+-- localStorage) with insert/update/delete policies of `using (true)` —
+-- meaning ANY visitor could modify or delete ANY pin via a direct API call,
+-- not just their own (the ownership check only existed client-side). Now that
+-- the app has real sign-in, pins are owned by auth.uid() and RLS enforces it
+-- server-side. visitor_id is kept only so old rows aren't orphaned by a
+-- dropped column; the app no longer reads or writes it.
 create table if not exists public.map_pins (
   id           uuid primary key default gen_random_uuid(),
   visitor_id   text,
@@ -264,8 +271,9 @@ alter table public.map_pins add column if not exists state_code text;
 alter table public.map_pins add column if not exists lat double precision;
 alter table public.map_pins add column if not exists lng double precision;
 alter table public.map_pins add column if not exists created_at timestamptz not null default now();
-create index if not exists idx_map_pins_visitor on public.map_pins(visitor_id);
-create index if not exists idx_map_pins_loc     on public.map_pins(country_code, state_code);
+alter table public.map_pins add column if not exists user_id uuid references auth.users(id) on delete cascade;
+create unique index if not exists uniq_map_pins_user on public.map_pins(user_id) where user_id is not null;
+create index if not exists idx_map_pins_loc on public.map_pins(country_code, state_code);
 
 -- ---------- Feedback wall: submissions await admin approval ----------
 create table if not exists public.feedback (
@@ -284,18 +292,19 @@ create index if not exists idx_feedback_status on public.feedback(status);
 alter table public.map_pins enable row level security;
 alter table public.feedback enable row level security;
 
--- map_pins: everyone reads; a visitor adds/updates/removes their own pin
--- (the client scopes writes by the unguessable uuid + visitor_id). Admins
--- (authenticated) may manage everything.
+-- map_pins: everyone reads (browsing the map needs no login); a signed-in
+-- member manages only their own pin (user_id = auth.uid(), enforced server
+-- side — not just checked client-side like the old visitor_id scheme).
+-- Admins (allowlist) may manage everything.
 drop policy if exists "map_pins_read"   on public.map_pins;
 drop policy if exists "map_pins_insert" on public.map_pins;
 drop policy if exists "map_pins_update" on public.map_pins;
 drop policy if exists "map_pins_delete" on public.map_pins;
+drop policy if exists "map_pins_self"   on public.map_pins;
 drop policy if exists "map_pins_admin"  on public.map_pins;
 create policy "map_pins_read"   on public.map_pins for select using (true);
-create policy "map_pins_insert" on public.map_pins for insert with check (true);
-create policy "map_pins_update" on public.map_pins for update using (true) with check (true);
-create policy "map_pins_delete" on public.map_pins for delete using (true);
+create policy "map_pins_self"   on public.map_pins for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "map_pins_admin"  on public.map_pins for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- feedback: public may submit (as 'pending' only) and read only 'approved'

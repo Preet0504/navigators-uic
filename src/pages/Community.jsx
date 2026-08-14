@@ -5,7 +5,6 @@ import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
 import Pattern from '../components/Pattern';
 import WorldMap from '../components/WorldMap';
-import { getVisitorId, getMyPinId, setMyPinId } from '../lib/visitor';
 
 const num = (v) => {
   const n = parseFloat(v);
@@ -22,6 +21,7 @@ const colsForWidth = (w) => (w < 640 ? 1 : w < 1000 ? 2 : 3);
 
 export default function Community() {
   const {
+    user, openLogin,
     pins, addPin, updatePin, removePin, removeAnyPin,
     feedback, addFeedback, approveFeedback, rejectFeedback,
     isAdmin,
@@ -31,9 +31,8 @@ export default function Community() {
 
   const countries = useMemo(() => Country.getAllCountries(), []);
 
-  // ---- My pin (remembered per browser) ----
-  const [myPinId, setMyPinIdState] = useState(() => getMyPinId());
-  const myPin = useMemo(() => pins.find((p) => p.id === myPinId) || null, [pins, myPinId]);
+  // ---- My pin (the signed-in member's own row) ----
+  const myPin = useMemo(() => (user ? pins.find((p) => p.user_id === user.id) || null : null), [pins, user]);
   const mineKey = myPin
     ? `${myPin.country_code || myPin.country}|${myPin.state_code || myPin.state || ''}`
     : null;
@@ -48,6 +47,7 @@ export default function Community() {
 
   const submitPin = async (e) => {
     e.preventDefault();
+    if (!user) return openLogin();
     if (!countryCode) return toast('Pick your country first', 'gold');
     const country = Country.getCountryByCode(countryCode);
     const stateObj = stateCode ? State.getStateByCodeAndCountry(stateCode, countryCode) : null;
@@ -56,7 +56,7 @@ export default function Community() {
     if (lat == null || lng == null) return toast('Could not locate that place — try another', 'error');
 
     const payload = {
-      visitor_id: getVisitorId(),
+      user_id: user.id,
       country: country?.name || '',
       country_code: countryCode,
       state: stateObj?.name || null,
@@ -68,15 +68,13 @@ export default function Community() {
     const res = myPin ? await updatePin(myPin.id, payload) : await addPin(payload);
     setSaving(false);
     if (res.error) return toast(res.error, 'error');
-    if (!myPin && res.data?.id) { setMyPinId(res.data.id); setMyPinIdState(res.data.id); }
     toast(myPin ? 'Your pin was updated ✦' : 'You’re on the map! ✦', 'success');
   };
 
   const removeMine = async () => {
     if (!myPin) return;
-    const res = await removePin(myPin.id, getVisitorId());
+    const res = await removePin(myPin.id);
     if (res.error) return toast(res.error, 'error');
-    setMyPinId(null); setMyPinIdState(null);
     setCountryCode(''); setStateCode('');
     toast('Your pin was removed');
   };
@@ -85,9 +83,7 @@ export default function Community() {
     if (p._seed) return toast('Demo pin — add real pins to manage them', 'gold');
     if (!confirm(`Remove pin from ${p.state ? p.state + ', ' : ''}${p.country}?`)) return;
     const res = await removeAnyPin(p.id);
-    if (res.error) return toast(res.error, 'error');
-    if (p.id === myPinId) { setMyPinId(null); setMyPinIdState(null); }
-    toast('Pin removed');
+    res.error ? toast(res.error, 'error') : toast('Pin removed');
   };
 
   // ---- Feedback ----
@@ -231,7 +227,7 @@ export default function Community() {
                 </select>
               </div>
               <button type="submit" className="btn btn-gold" disabled={saving} style={{ flex: '0 0 auto' }}>
-                {saving ? 'Saving…' : myPin ? 'Update my pin' : 'Drop my pin'}
+                {saving ? 'Saving…' : !user ? 'Sign in to drop a pin' : myPin ? 'Update my pin' : 'Drop my pin'}
               </button>
             </form>
             <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.7rem' }}>

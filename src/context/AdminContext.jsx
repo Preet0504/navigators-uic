@@ -233,8 +233,8 @@ export function AdminProvider({ children }) {
     } catch (e) { return { error: e.message || 'Something went wrong' }; }
   };
   const updatePin = (id, updates) => write(() => supabase.from('map_pins').update(updates).eq('id', id));
-  // A visitor may only remove a pin that matches their own visitor_id.
-  const removePin = (id, visitorId) => write(() => supabase.from('map_pins').delete().eq('id', id).eq('visitor_id', visitorId));
+  // RLS enforces that a member can only delete their own pin (user_id = auth.uid()).
+  const removePin = (id) => write(() => supabase.from('map_pins').delete().eq('id', id));
   // Admin override: remove any pin.
   const removeAnyPin = (id) => write(() => supabase.from('map_pins').delete().eq('id', id));
 
