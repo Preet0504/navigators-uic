@@ -45,23 +45,50 @@ export function AdminProvider({ children }) {
   const [feedback, setFeedback] = useState(SEED_FEEDBACK);
 
   const setters = useRef({ setEvents, setHighlights, setRsvps, setPins, setFeedback });
+  // Tracks which tables have ever loaded real data this session. A blip on a
+  // table we've already loaded successfully should never be treated the same
+  // as "backend unreachable" — see fetchTable below.
+  const everLoaded = useRef({});
 
-  // ---- Fetch a single table, falling back to seed on error ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- Fetch a single table ----
+  // A single failed request (a network blip, a token mid-refresh right after
+  // sign-in, a realtime-triggered refetch racing a fresh page load) used to be
+  // treated as "the backend is gone": real data was instantly replaced with
+  // fake seed/placeholder content, with no retry. That's what caused the
+  // "falls back to placeholder events" symptom — one transient hiccup, usually
+  // right after sign-in or right after a write, was enough to trigger it.
+  //
+  // Now: retry once before giving up, and only fall back to seed if we've
+  // NEVER successfully loaded this table this session. If we have, a renewed
+  // failure just keeps showing the last good data — it doesn't get swapped
+  // out for placeholders, and it doesn't flip the shared "backend offline"
+  // flag off the back of one blip.
   const fetchTable = useCallback(async (name) => {
     const cfg = TABLES[name];
     if (!supabase) {
       setters.current[cfg.setter](cfg.seed);
       return;
     }
-    const { data, error } = await supabase.from(name).select('*').order(cfg.order.column, { ascending: cfg.order.ascending });
+    let data, error;
+    // Up to 2 attempts: a single blip shouldn't be enough to give up.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      ({ data, error } = await supabase.from(name).select('*').order(cfg.order.column, { ascending: cfg.order.ascending }));
+      if (!error) break;
+      if (attempt === 0) await sleep(700);
+    }
     if (error) {
-      // Unreachable / not provisioned → show seed so the site still looks alive.
-      setBackendOk(false);
-      setters.current[cfg.setter](cfg.seed);
+      console.warn(`Fetching "${name}" failed:`, error.message);
+      if (!everLoaded.current[name]) {
+        // Never loaded this table before — genuinely unreachable/unprovisioned.
+        setBackendOk(false);
+        setters.current[cfg.setter](cfg.seed);
+      }
+      // Otherwise: keep showing the last known-good data.
       return;
     }
-    // Connected: always use real data (even when empty). Seed/demo content is
-    // NEVER shown against a live backend, so its fake ids can't reach the DB.
+    everLoaded.current[name] = true;
     setBackendOk(true);
     setters.current[cfg.setter](data);
   }, []);
