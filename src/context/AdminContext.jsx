@@ -102,8 +102,22 @@ export function AdminProvider({ children }) {
   useEffect(() => {
     if (!supabase) { setAuthReady(true); return; }
     let active = true;
+    // Google sign-in redirects through Supabase, which appends a one-time
+    // `?code=...` (or `?error=...`) to our URL for the SDK to consume. It's
+    // supposed to disappear once handled, but it was sticking around
+    // indefinitely (even surviving a later sign-out) — strip it ourselves
+    // once auth state has settled, rather than relying on the SDK to do it.
+    const cleanAuthParamsFromUrl = () => {
+      const url = new URL(window.location.href);
+      let changed = false;
+      ['code', 'error', 'error_description', 'error_code'].forEach((k) => {
+        if (url.searchParams.has(k)) { url.searchParams.delete(k); changed = true; }
+      });
+      if (changed) window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+    };
     const apply = async (session) => {
       if (!active) return;
+      cleanAuthParamsFromUrl();
       const u = session?.user ?? null;
       setUser(u);
       if (u) setLoginOpen(false); // close the sign-in modal once signed in
