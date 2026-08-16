@@ -117,6 +117,10 @@ export function AdminProvider({ children }) {
       });
       if (changed) window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
     };
+    // apply() is the ONE place that commits to a real, confirmed auth state —
+    // it strips the OAuth URL params and sets user/isAdmin. It must only ever
+    // be called with an actual result from getSession() or onAuthStateChange,
+    // never with a guess (see the timeout comment below for why).
     const apply = async (session) => {
       if (!active) return;
       cleanAuthParamsFromUrl();
@@ -135,32 +139,39 @@ export function AdminProvider({ children }) {
       }
       if (active) setAuthReady(true);
     };
-    // supabase-js serializes session reads through a cross-tab browser lock
-    // (navigator.locks). If that lock is ever left stuck — e.g. orphaned by a
-    // tab that closed mid-operation — getSession() can reject (or in some
-    // cases just hang) instead of resolving. Left unhandled, that means
-    // authReady never becomes true and the app never recovers until the
-    // browser (not just the tab) is fully closed, which matches reports of
-    // the site "getting stuck loading" after sign-in. Guard both failure
-    // modes: catch a rejection, and race against a timeout so a hang can't
-    // block the app forever — either way we still call apply(null) so public
-    // data keeps loading; a real session that resolves later still arrives
-    // via onAuthStateChange and corrects the UI then.
-    const withTimeout = (promise, ms) => Promise.race([
-      promise,
-      new Promise((resolve) => setTimeout(() => resolve({ data: { session: null }, timedOut: true }), ms)),
-    ]);
-    withTimeout(supabase.auth.getSession(), 8000)
-      .then((result) => {
-        if (result?.timedOut) console.warn('supabase.auth.getSession() timed out after 8s — proceeding as signed-out for now.');
-        return apply(result.data.session);
-      })
+    // getSession() can legitimately take a while right after a Google
+    // redirect — it's awaiting the real PKCE token exchange with Supabase, a
+    // genuine network round trip, not just a storage read. An earlier version
+    // of this guard raced getSession() against a timeout and, on timeout,
+    // treated it as a hard "signed out": stripped the OAuth code from the URL
+    // and zeroed user/isAdmin via apply(null). That backfired whenever the
+    // real exchange was merely slow rather than stuck — it would go on to
+    // succeed a moment later, but the premature verdict had already shown the
+    // person as logged out and erased the params a retry needed. That matches
+    // reports of "sign in, immediately looks signed out, but a refresh fixes
+    // it" — the refresh worked because the exchange HAD succeeded in the
+    // background and the session was sitting in storage the whole time.
+    //
+    // Now: a timeout only unblocks the UI (authReady → true) so the app can't
+    // hang forever, WITHOUT declaring anyone signed out or touching the URL.
+    // The real getSession() call keeps running in the background; whenever it
+    // (or onAuthStateChange) actually resolves, apply() runs for real and
+    // corrects the UI — even if that's well after the timeout fired.
+    let settled = false;
+    const stuckTimer = setTimeout(() => {
+      if (settled || !active) return;
+      console.warn('supabase.auth.getSession() is taking a while — showing public content for now; sign-in will apply once it resolves.');
+      setAuthReady(true);
+    }, 15000);
+    supabase.auth.getSession()
+      .then(({ data }) => { settled = true; clearTimeout(stuckTimer); return apply(data.session); })
       .catch((e) => {
+        settled = true; clearTimeout(stuckTimer);
         console.warn('supabase.auth.getSession() failed:', e?.message || e);
         return apply(null);
       });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => apply(session));
-    return () => { active = false; sub.subscription.unsubscribe(); };
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => { settled = true; clearTimeout(stuckTimer); apply(session); });
+    return () => { active = false; clearTimeout(stuckTimer); sub.subscription.unsubscribe(); };
   }, []);
 
   // ---- Initial load + realtime ----
