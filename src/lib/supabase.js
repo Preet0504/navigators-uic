@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, processLock } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -31,6 +31,18 @@ export const supabase = isConfigured
         // session, so closing the browser forces a fresh sign-in. A refresh
         // within the same tab keeps you signed in.
         storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
+        // Default lock (navigatorLock) coordinates session reads/refreshes
+        // across every tab open to the site via the shared, browser-wide
+        // navigator.locks API. That coordination is pointless for us — each
+        // tab already has its own isolated sessionStorage above, so there's
+        // no cross-tab state to protect — and it was actively harmful: we
+        // reproduced the lock getting orphaned (held by a torn-down tab/
+        // context and never released), which silently hung every subsequent
+        // sign-in check and authenticated request until the whole browser
+        // (not just the tab) was closed. processLock scopes the lock to just
+        // this tab's in-memory process instead, sidestepping the shared-lock
+        // failure mode entirely.
+        lock: processLock,
       },
     })
   : null;
