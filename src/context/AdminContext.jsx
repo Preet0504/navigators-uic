@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, isConfigured, uploadHighlight, removeHighlightFile } from '../lib/supabase';
-import { SEED_EVENTS, SEED_PINS, SEED_FEEDBACK } from '../data/seed';
+import { SEED_PINS, SEED_FEEDBACK } from '../data/seed';
 
 const AdminContext = createContext();
 export function useAdmin() {
@@ -24,7 +24,9 @@ function loggedInWithPassword(session) {
 
 // Tables we read/subscribe to.
 const TABLES = {
-  events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: SEED_EVENTS },
+  // No seed fallback: showing fake demo events during a backend hiccup was
+  // more confusing than a genuine "no events" empty state.
+  events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: [] },
   highlights: { setter: 'setHighlights', order: { column: 'created_at', ascending: false }, seed: [] },
   event_rsvps: { setter: 'setRsvps', order: { column: 'created_at', ascending: false }, seed: [] },
   map_pins: { setter: 'setPins', order: { column: 'created_at', ascending: false }, seed: SEED_PINS },
@@ -38,7 +40,7 @@ export function AdminProvider({ children }) {
   const [authReady, setAuthReady] = useState(false);
   const [backendOk, setBackendOk] = useState(isConfigured);
 
-  const [events, setEvents] = useState(SEED_EVENTS);
+  const [events, setEvents] = useState([]);
   const [highlights, setHighlights] = useState([]);
   const [rsvps, setRsvps] = useState([]);
   const [pins, setPins] = useState(SEED_PINS);

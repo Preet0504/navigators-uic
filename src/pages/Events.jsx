@@ -70,7 +70,6 @@ export default function Events() {
   };
 
   const startEdit = (ev) => {
-    if (ev._seed) return toast('Demo event — add your own to manage it', 'gold');
     setDraft({ ...EMPTY_EVENT, ...ev, description_html: ev.description_html || ev.description || '', faqs: Array.isArray(ev.faqs) ? ev.faqs : [] });
     setEditId(ev.id);
     setShowForm(true);

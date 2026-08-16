@@ -70,7 +70,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
 
   // ---- RSVP (login required; identity comes from the auth provider) ----
   const openRsvp = async () => {
-    if (ev._seed) return toast('Demo event — RSVP opens once real events are added', 'gold');
     if (ev.rsvp_url) return window.open(ev.rsvp_url, '_blank');
     if (!user) return openLogin();
     setModal('rsvp');
@@ -107,7 +106,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
 
   const del = async (e) => {
     e.stopPropagation();
-    if (ev._seed) return toast('Demo event — nothing to delete yet', 'gold');
     if (!confirm(`Delete "${ev.title}"? This can’t be undone.`)) return;
     const res = await removeEvent(ev.id);
     res.error ? toast(res.error, 'error') : toast('Event deleted');
@@ -138,7 +136,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const onUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (ev._seed) return toast('Demo event — add a real one to upload highlights', 'gold');
     setUploading(true);
     const res = await addHighlight(ev.id, file);
     setUploading(false);

@@ -20,7 +20,19 @@ export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,
-        autoRefreshToken: true,
+        // Background auto-refresh isn't worth it for us: our sessions are
+        // already short-lived by design (sessionStorage, gone on browser
+        // close — never meant to survive hours anyway), and the SDK
+        // force-signs-out the user whenever a background refresh call fails
+        // for *any* reason (see GoTrueClient#_recoverAndRefresh, which calls
+        // _removeSession() on a non-retryable refresh error with no retry or
+        // recovery path available to us). That's what caused reports of
+        // being signed out automatically shortly after a successful Google
+        // sign-in. Without auto-refresh, an already-established session is
+        // just used as-is from storage until it naturally expires or the
+        // browser closes, instead of being torn down by a failed background
+        // refresh attempt.
+        autoRefreshToken: false,
         // PKCE flow: OAuth returns a short-lived `?code=` that we exchange for a
         // session, instead of the implicit flow's `#access_token=…` sitting in
         // the URL (which leaks via history/referrer). detectSessionInUrl then

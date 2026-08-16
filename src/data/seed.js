@@ -2,25 +2,6 @@
 // so the site always looks alive. Items are flagged `_seed` and use string
 // ids — admin write actions are disabled on them until real data exists.
 
-const soon = (days, hour = 18) => {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  d.setHours(hour, 0, 0, 0);
-  return d.toISOString();
-};
-const past = (days) => {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString();
-};
-
-export const SEED_EVENTS = [
-  { id: 'seed-ev-1', _seed: true, title: 'Welcome Week Bonfire', date: soon(6), address: 'Montrose Beach, Chicago, IL', rsvp_url: '', description: "Kick off the semester with s'mores, music and new friends by the lake. Everyone welcome — bring a friend!", image: '/sample-event.png' },
-  { id: 'seed-ev-2', _seed: true, title: 'Fall Retreat Weekend', date: soon(20), address: 'Lake Geneva, WI', rsvp_url: '', description: 'A weekend away to rest, grow and connect. Cabins, hikes, late-night talks and great teaching.', image: '/sample-retreat.png' },
-  { id: 'seed-ev-3', _seed: true, title: 'Friendsgiving Dinner', date: soon(34), address: 'Student Center East, UIC', rsvp_url: '', description: 'A big shared table before finals. Bring a dish, bring yourself — we save you a seat.', image: '/sample-event.png' },
-  { id: 'seed-ev-4', _seed: true, title: 'Spring Kickoff Night', date: past(40), address: 'UIC Quad', rsvp_url: '', description: 'Where it all started last term. Check the highlights!', image: '/sample-retreat.png' },
-];
-
 // Community map pins — a spread of locations so the map looks alive offline.
 // `count` is a demo-only aggregate; real pins each represent one visitor row.
 export const SEED_PINS = [
