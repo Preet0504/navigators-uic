@@ -133,7 +133,30 @@ export function AdminProvider({ children }) {
       }
       if (active) setAuthReady(true);
     };
-    supabase.auth.getSession().then(({ data }) => apply(data.session));
+    // supabase-js serializes session reads through a cross-tab browser lock
+    // (navigator.locks). If that lock is ever left stuck — e.g. orphaned by a
+    // tab that closed mid-operation — getSession() can reject (or in some
+    // cases just hang) instead of resolving. Left unhandled, that means
+    // authReady never becomes true and the app never recovers until the
+    // browser (not just the tab) is fully closed, which matches reports of
+    // the site "getting stuck loading" after sign-in. Guard both failure
+    // modes: catch a rejection, and race against a timeout so a hang can't
+    // block the app forever — either way we still call apply(null) so public
+    // data keeps loading; a real session that resolves later still arrives
+    // via onAuthStateChange and corrects the UI then.
+    const withTimeout = (promise, ms) => Promise.race([
+      promise,
+      new Promise((resolve) => setTimeout(() => resolve({ data: { session: null }, timedOut: true }), ms)),
+    ]);
+    withTimeout(supabase.auth.getSession(), 8000)
+      .then((result) => {
+        if (result?.timedOut) console.warn('supabase.auth.getSession() timed out after 8s — proceeding as signed-out for now.');
+        return apply(result.data.session);
+      })
+      .catch((e) => {
+        console.warn('supabase.auth.getSession() failed:', e?.message || e);
+        return apply(null);
+      });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => apply(session));
     return () => { active = false; sub.subscription.unsubscribe(); };
   }, []);
