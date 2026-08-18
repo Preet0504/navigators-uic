@@ -461,3 +461,19 @@ begin
   return new_tok;
 end $$;
 grant execute on function public.reclaim_rsvp(text, text, text, text, text) to anon, authenticated;
+
+-- ============================================================
+--  RSVP CUSTOM QUESTIONS — per-event Q&A instead of a fixed guest count
+--  (append; idempotent; safe to re-run)
+-- ============================================================
+
+-- Each event defines its own RSVP questions: a JSON array of
+--   { id, type: 'text' | 'choice', label, required, options: [] (choice only) }
+-- Replaces the old fixed "how many guests" field — admins build whatever
+-- questions they want per event (a guest-count question included, if wanted).
+alter table public.events add column if not exists rsvp_questions jsonb not null default '[]'::jsonb;
+
+-- Answers are stored as { [questionId]: answerValue }, matched against the
+-- event's rsvp_questions at render time. The old bringing_guests column is
+-- kept (not dropped) so historical RSVPs from before this change aren't lost.
+alter table public.event_rsvps add column if not exists answers jsonb not null default '{}'::jsonb;

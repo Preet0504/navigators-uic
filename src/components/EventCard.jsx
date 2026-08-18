@@ -55,7 +55,8 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const eventRsvps = rsvps.filter((r) => String(r.event_id) === String(ev.id));
 
   const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights' | 'rsvpsList'
-  const [guests, setGuests] = useState('No, just me');
+  const rsvpQuestions = Array.isArray(ev.rsvp_questions) ? ev.rsvp_questions : [];
+  const [answers, setAnswers] = useState({}); // { [questionId]: value }
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -72,8 +73,14 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const openRsvp = async () => {
     if (ev.rsvp_url) return window.open(ev.rsvp_url, '_blank');
     if (!user) return openLogin();
+    // Default choice questions to their first option (matches a <select>'s
+    // natural default); text questions start blank.
+    const initial = {};
+    rsvpQuestions.forEach((q) => { initial[q.id] = q.type === 'choice' ? (q.options?.[0] || '') : ''; });
+    setAnswers(initial);
     setModal('rsvp');
   };
+  const setAnswer = (id, val) => setAnswers((a) => ({ ...a, [id]: val }));
 
   const submitRsvp = async (e) => {
     e.preventDefault();
@@ -81,7 +88,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     const { first_name, last_name } = nameFromUser(user);
     const payload = {
       event_id: ev.id, user_id: user.id, email: user.email,
-      first_name, last_name, bringing_guests: guests, status: 'confirmed',
+      first_name, last_name, answers, status: 'confirmed',
     };
     setSubmitting(true);
     const res = await addRsvp(payload);
@@ -92,7 +99,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     }
     setModal(null); setJustWent(true);
     // Best-effort confirmation email to the attendee (never blocks the RSVP).
-    sendRsvpConfirmed({ email: user.email, first_name, last_name, bringing_guests: guests }, ev);
+    sendRsvpConfirmed({ email: user.email, first_name, last_name, answers }, ev);
     toast('You’re going! 🎉', 'success');
   };
 
@@ -123,9 +130,16 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     const res = await confirmRsvp(r.id);
     res.error ? toast(res.error, 'error') : toast(`${r.first_name || 'RSVP'} marked confirmed ✓`, 'success');
   };
+  const csvEsc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const exportCsv = () => {
     if (!eventRsvps.length) return toast('No RSVPs to export yet', 'gold');
-    const csv = 'First Name,Last Name,Email,Guests,Status\n' + eventRsvps.map((r) => `"${r.first_name}","${r.last_name}","${r.email || ''}","${r.bringing_guests}","${rsvpConfirmed(r) ? 'Confirmed' : 'Pending'}"`).join('\n');
+    const header = ['First Name', 'Last Name', 'Email', ...rsvpQuestions.map((q) => q.label), 'Status'];
+    const rows = eventRsvps.map((r) => [
+      r.first_name, r.last_name, r.email || '',
+      ...rsvpQuestions.map((q) => r.answers?.[q.id] ?? ''),
+      rsvpConfirmed(r) ? 'Confirmed' : 'Pending',
+    ].map(csvEsc).join(','));
+    const csv = header.map(csvEsc).join(',') + '\n' + rows.join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url; a.download = `${ev.title}-rsvps.csv`; a.click();
@@ -287,9 +301,20 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
             <div className="modal-head"><h2>RSVP — {ev.title}</h2><button type="button" className="icon-btn" onClick={close}>✕</button></div>
             <div className="modal-body">
               <p className="muted" style={{ fontSize: '0.9rem', marginBottom: '1.1rem' }}>
-                Signed in as <b>{user?.email}</b>. Just let us know if you’re bringing anyone.
+                Signed in as <b>{user?.email}</b>.{rsvpQuestions.length ? ' Just a couple quick questions.' : ' Click below to confirm you’re going.'}
               </p>
-              <div className="field"><label>Bringing anyone?</label><select className="select" value={guests} onChange={(e) => setGuests(e.target.value)}><option>No, just me</option><option>Yes, 1 guest</option><option>Yes, 2 guests</option><option>Yes, 3+ guests</option></select></div>
+              {rsvpQuestions.map((q) => (
+                <div className="field" key={q.id}>
+                  <label>{q.label}{!q.required && <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}> (optional)</span>}</label>
+                  {q.type === 'choice' ? (
+                    <select className="select" required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswer(q.id, e.target.value)}>
+                      {(q.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input" required={q.required} value={answers[q.id] || ''} onChange={(e) => setAnswer(q.id, e.target.value)} />
+                  )}
+                </div>
+              ))}
               <button type="submit" className="btn" style={{ width: '100%' }} disabled={submitting}>{submitting ? 'Saving…' : 'I’m going 🎉'}</button>
             </div>
           </form>
@@ -304,14 +329,16 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
             <div className="modal-body">
               <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Email', 'Guests', 'Status', ''].map((h) => <th key={h} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
+                  <thead><tr style={{ background: 'var(--mist)' }}>{['First', 'Last', 'Email', ...rsvpQuestions.map((q) => q.label), 'Status', ''].map((h, i) => <th key={i} style={{ textAlign: 'left', padding: '0.6rem 0.8rem' }}>{h}</th>)}</tr></thead>
                   <tbody>
                     {eventRsvps.map((r) => (
                       <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.6rem 0.8rem' }}>{r.first_name}</td>
                         <td style={{ padding: '0.6rem 0.8rem' }}>{r.last_name}</td>
                         <td style={{ padding: '0.6rem 0.8rem' }} className="muted">{r.email ? <a href={`mailto:${r.email}`} style={{ color: 'var(--teal)' }}>{r.email}</a> : '—'}</td>
-                        <td style={{ padding: '0.6rem 0.8rem' }}>{r.bringing_guests}</td>
+                        {rsvpQuestions.map((q) => (
+                          <td key={q.id} style={{ padding: '0.6rem 0.8rem' }}>{r.answers?.[q.id] || '—'}</td>
+                        ))}
                         <td style={{ padding: '0.6rem 0.8rem' }}>
                           {rsvpConfirmed(r)
                             ? <span className="badge" style={{ background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ Confirmed</span>
@@ -323,7 +350,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
                         </td>
                       </tr>
                     ))}
-                    {eventRsvps.length === 0 && <tr><td colSpan="6" className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
+                    {eventRsvps.length === 0 && <tr><td colSpan={5 + rsvpQuestions.length} className="muted center" style={{ padding: '2rem' }}>No one has RSVP’d yet.</td></tr>}
                   </tbody>
                 </table>
               </div>

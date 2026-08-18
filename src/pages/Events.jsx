@@ -11,7 +11,8 @@ import EventCard from '../components/EventCard';
 import RichTextEditor from '../components/RichTextEditor';
 
 const PAGE_SIZE = 9;
-const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', description: '', description_html: '', image: '/sample-event.png', faqs: [] };
+const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', description: '', description_html: '', image: '/sample-event.png', faqs: [], rsvp_questions: [] };
+const newQuestion = () => ({ id: crypto.randomUUID(), type: 'text', label: '', required: false, options: [] });
 
 export default function Events() {
   const { events, addEvent, updateEvent, isAdmin, rsvps, listMemberEmails } = useAdmin();
@@ -46,6 +47,9 @@ export default function Events() {
       image: draft.image || '', description_html: draft.description_html || '',
       description: htmlToText(draft.description_html) || draft.description || '',
       faqs: (draft.faqs || []).filter((f) => (f.q || '').trim() || (f.a || '').trim()),
+      rsvp_questions: (draft.rsvp_questions || [])
+        .filter((q) => (q.label || '').trim())
+        .map((q) => ({ ...q, options: q.type === 'choice' ? (q.options || []).filter((o) => o.trim()) : [] })),
     };
     const res = editId ? await updateEvent(editId, payload) : await addEvent(payload);
     setSaving(false);
@@ -70,7 +74,11 @@ export default function Events() {
   };
 
   const startEdit = (ev) => {
-    setDraft({ ...EMPTY_EVENT, ...ev, description_html: ev.description_html || ev.description || '', faqs: Array.isArray(ev.faqs) ? ev.faqs : [] });
+    setDraft({
+      ...EMPTY_EVENT, ...ev, description_html: ev.description_html || ev.description || '',
+      faqs: Array.isArray(ev.faqs) ? ev.faqs : [],
+      rsvp_questions: Array.isArray(ev.rsvp_questions) ? ev.rsvp_questions : [],
+    });
     setEditId(ev.id);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -92,6 +100,11 @@ export default function Events() {
   const addFaq = () => setDraft((d) => ({ ...d, faqs: [...(d.faqs || []), { q: '', a: '' }] }));
   const updFaq = (i, key, val) => setDraft((d) => { const faqs = [...(d.faqs || [])]; faqs[i] = { ...faqs[i], [key]: val }; return { ...d, faqs }; });
   const rmFaq = (i) => setDraft((d) => ({ ...d, faqs: (d.faqs || []).filter((_, j) => j !== i) }));
+
+  // RSVP question editor helpers
+  const addQuestion = () => setDraft((d) => ({ ...d, rsvp_questions: [...(d.rsvp_questions || []), newQuestion()] }));
+  const updQuestion = (i, key, val) => setDraft((d) => { const qs = [...(d.rsvp_questions || [])]; qs[i] = { ...qs[i], [key]: val }; return { ...d, rsvp_questions: qs }; });
+  const rmQuestion = (i) => setDraft((d) => ({ ...d, rsvp_questions: (d.rsvp_questions || []).filter((_, j) => j !== i) }));
 
   return (
     <div className="page" ref={ref}>
@@ -153,6 +166,40 @@ export default function Events() {
                 </div>
               ))}
               <button type="button" className="btn btn-ghost btn-sm" onClick={addFaq}>+ Add FAQ</button>
+            </div>
+
+            {/* RSVP question editor */}
+            <div className="field">
+              <label>RSVP questions <span className="muted" style={{ textTransform: 'none', fontWeight: 400 }}>— optional; asked when someone RSVPs (e.g. guest count, dietary needs, T-shirt size)</span></label>
+              {(draft.rsvp_questions || []).map((q, i) => (
+                <div key={q.id} className="card" style={{ padding: '0.9rem', marginBottom: '0.7rem', background: 'var(--paper)' }}>
+                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                        <input className="input" style={{ flex: '2 1 200px' }} placeholder="Question (e.g. Any dietary restrictions?)" value={q.label} onChange={(e) => updQuestion(i, 'label', e.target.value)} />
+                        <select className="select" style={{ flex: '1 1 140px' }} value={q.type} onChange={(e) => updQuestion(i, 'type', e.target.value)}>
+                          <option value="text">Short answer</option>
+                          <option value="choice">Multiple choice</option>
+                        </select>
+                      </div>
+                      {q.type === 'choice' && (
+                        <textarea
+                          className="textarea" style={{ minHeight: 60, marginBottom: '0.5rem' }}
+                          placeholder={'One option per line, e.g.\nJust me\n1 guest\n2 guests'}
+                          value={(q.options || []).join('\n')}
+                          onChange={(e) => updQuestion(i, 'options', e.target.value.split('\n'))}
+                        />
+                      )}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, textTransform: 'none' }}>
+                        <input type="checkbox" checked={!!q.required} onChange={(e) => updQuestion(i, 'required', e.target.checked)} />
+                        Required
+                      </label>
+                    </div>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => rmQuestion(i)} title="Remove question">✕</button>
+                  </div>
+                </div>
+              ))}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={addQuestion}>+ Add question</button>
             </div>
 
             <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.5rem' }}>

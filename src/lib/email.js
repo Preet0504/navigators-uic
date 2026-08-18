@@ -55,13 +55,18 @@ export function sendNewEvent(recipient, event) {
 /** Sent to the attendee themselves right after they RSVP. */
 export function sendRsvpConfirmed(rsvp, event) {
   const name = fullName(rsvp);
-  const guestLine = rsvp.bringing_guests && rsvp.bringing_guests !== 'No, just me' ? `\nGuests: ${rsvp.bringing_guests}` : '';
+  const questions = Array.isArray(event.rsvp_questions) ? event.rsvp_questions : [];
+  const answers = rsvp.answers || {};
+  const answerLines = questions
+    .map((q) => (answers[q.id] ? `${q.label}: ${answers[q.id]}` : null))
+    .filter(Boolean);
+  const answersBlock = answerLines.length ? `\n\n${answerLines.join('\n')}` : '';
   return send({
     to_email: rsvp.email,
     to_name: name,
     subject: `You’re going — ${event.title}`,
     title: event.title,
-    message: `Hi ${name},\n\nYou’re confirmed for "${event.title}" 🎉${whenWhere(event)}${guestLine}\n\nCan’t make it after all? You can cancel your RSVP anytime on the site.\n\nSee you there!\n\n— The Navigators`,
+    message: `Hi ${name},\n\nYou’re confirmed for "${event.title}" 🎉${whenWhere(event)}${answersBlock}\n\nCan’t make it after all? You can cancel your RSVP anytime on the site.\n\nSee you there!\n\n— The Navigators`,
   });
 }
 
