@@ -31,7 +31,7 @@ export default function Footer() {
         <div>
           <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.8rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '1rem' }}>Connect</h4>
           <a href="https://chat.whatsapp.com/HdFHVznfmCsDVAWTJE50Aa?mode=gi_t" target="_blank" rel="noreferrer" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>💬 Join our WhatsApp group</a>
-          <a href="mailto:contact@uicnavigators.org" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>contact@uicnavigators.org</a>
+          <a href="mailto:tim.bierma@navigators.org" style={{ display: 'block', color: '#cfe3e1', padding: '0.3rem 0', fontSize: '0.95rem' }}>tim.bierma@navigators.org</a>
           <p style={{ color: '#9fc0bd', fontSize: '0.85rem', marginTop: '0.6rem' }}>University of Illinois Chicago</p>
         </div>
       </div>
