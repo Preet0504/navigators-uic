@@ -127,11 +127,6 @@ export default function Home() {
             <Link to="/events" className="btn btn-gold">See what’s happening →</Link>
             <Link to="/weekly-gathering" className="btn btn-outline-light">Weekly Gathering</Link>
           </div>
-          <div className="stat-row">
-            <div className="stat"><b>4</b><span>nights a week</span></div>
-            <div className="stat"><b>1</b><span>welcoming family</span></div>
-            <div className="stat"><b>0</b><span>pressure to fit in</span></div>
-          </div>
         </div>
       </header>
 

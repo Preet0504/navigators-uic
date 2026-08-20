@@ -15,7 +15,7 @@ const GATHERINGS = [
     accent: 'var(--purple)',
     title: 'Cold Brew Arena',
     tag: 'Weekly · game night',
-    desc: 'Board games, video games and good coffee. Bragging rights, quantified — no pressure to be good at anything, just show up and have fun.',
+    desc: 'Board games, card games, chocolates, coffee, and fun conversation. No pressure to be good at anything, just show up and have fun.',
   },
 ];
 
