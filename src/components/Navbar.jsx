@@ -77,6 +77,7 @@ export default function Navbar() {
         @media (max-width: 880px) {
           .nav-links { display: none; }
           .nav-cta .admin-pill { display: none; }
+          .nav-cta .btn { display: none; }
           .hamburger { display: flex; }
         }
       `}</style>
