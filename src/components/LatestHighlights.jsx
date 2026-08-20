@@ -74,7 +74,7 @@ export default function LatestHighlights() {
             {formatDate(event.date, { month: 'long', day: 'numeric', year: 'numeric' })} · {items.length} photo{items.length === 1 ? '' : 's'} &amp; video{items.length === 1 ? '' : 's'}
           </p>
         </div>
-        <Link to="/events" className="btn btn-ghost btn-sm">Browse past events</Link>
+        <Link to="/events?tab=completed" className="btn btn-ghost btn-sm">Browse past events</Link>
       </div>
 
       <div className="lh-strip-wrap reveal">

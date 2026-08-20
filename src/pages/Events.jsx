@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
@@ -17,8 +18,11 @@ const newQuestion = () => ({ id: crypto.randomUUID(), type: 'text', label: '', r
 export default function Events() {
   const { events, addEvent, updateEvent, isAdmin, rsvps, listMemberEmails } = useAdmin();
   const toast = useToast();
+  const location = useLocation();
 
-  const [tab, setTab] = useState('upcoming');
+  // If ?tab=completed is in the URL, start on the completed tab
+  const initialTab = new URLSearchParams(location.search).get('tab') || 'upcoming';
+  const [tab, setTab] = useState(initialTab);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState(EMPTY_EVENT);
