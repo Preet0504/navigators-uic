@@ -28,6 +28,17 @@ const TABLES = {
   // more confusing than a genuine "no events" empty state.
   events: { setter: 'setEvents', order: { column: 'date', ascending: true }, seed: [] },
   highlights: { setter: 'setHighlights', order: { column: 'created_at', ascending: false }, seed: [] },
+  // Likes/comments are loaded in full, like every other table here. At chapter
+  // scale that's a few hundred rows; if comments ever outgrow it, switch this
+  // one to a per-highlight fetch when the comment sheet opens.
+  //
+  // `optional`: these tables only exist once schema.sql has been re-run. If the
+  // frontend ships first, their fetches 404 — and without this flag that would
+  // trip the global "backend offline" state, which DISABLES the sign-in button
+  // for everyone. A missing social table must degrade to "no likes/comments",
+  // never to "the site is down".
+  highlight_likes: { setter: 'setLikes', order: { column: 'created_at', ascending: false }, seed: [], optional: true },
+  highlight_comments: { setter: 'setComments', order: { column: 'created_at', ascending: true }, seed: [], optional: true },
   event_rsvps: { setter: 'setRsvps', order: { column: 'created_at', ascending: false }, seed: [] },
   map_pins: { setter: 'setPins', order: { column: 'created_at', ascending: false }, seed: SEED_PINS },
   feedback: { setter: 'setFeedback', order: { column: 'created_at', ascending: false }, seed: SEED_FEEDBACK },
@@ -42,11 +53,13 @@ export function AdminProvider({ children }) {
 
   const [events, setEvents] = useState([]);
   const [highlights, setHighlights] = useState([]);
+  const [likes, setLikes] = useState([]);
+  const [comments, setComments] = useState([]);
   const [rsvps, setRsvps] = useState([]);
   const [pins, setPins] = useState(SEED_PINS);
   const [feedback, setFeedback] = useState(SEED_FEEDBACK);
 
-  const setters = useRef({ setEvents, setHighlights, setRsvps, setPins, setFeedback });
+  const setters = useRef({ setEvents, setHighlights, setLikes, setComments, setRsvps, setPins, setFeedback });
   // Tracks which tables have ever loaded real data this session. A blip on a
   // table we've already loaded successfully should never be treated the same
   // as "backend unreachable" — see fetchTable below.
@@ -84,14 +97,15 @@ export function AdminProvider({ children }) {
       console.warn(`Fetching "${name}" failed:`, error.message);
       if (!everLoaded.current[name]) {
         // Never loaded this table before — genuinely unreachable/unprovisioned.
-        setBackendOk(false);
+        // Optional tables stay out of the global verdict (see TABLES above).
+        if (!cfg.optional) setBackendOk(false);
         setters.current[cfg.setter](cfg.seed);
       }
       // Otherwise: keep showing the last known-good data.
       return;
     }
     everLoaded.current[name] = true;
-    setBackendOk(true);
+    if (!cfg.optional) setBackendOk(true);
     setters.current[cfg.setter](data);
   }, []);
 
@@ -178,12 +192,21 @@ export function AdminProvider({ children }) {
   useEffect(() => {
     fetchAll();
     if (!supabase) return;
-    const channel = supabase.channel('nav-hub');
-    Object.keys(TABLES).forEach((name) => {
-      channel.on('postgres_changes', { event: '*', schema: 'public', table: name }, () => fetchTable(name));
-    });
-    channel.subscribe();
-    return () => supabase.removeChannel(channel);
+    // Two channels, not one. postgres_changes bindings are validated server-side
+    // on subscribe, so a binding to a table that doesn't exist yet fails the
+    // WHOLE channel — putting the optional social tables on the core channel
+    // would kill live updates for events and RSVPs on any deploy that ships
+    // ahead of the SQL migration.
+    const subscribe = (id, names) => {
+      const ch = supabase.channel(id);
+      names.forEach((name) => ch.on('postgres_changes', { event: '*', schema: 'public', table: name }, () => fetchTable(name)));
+      ch.subscribe();
+      return ch;
+    };
+    const names = Object.keys(TABLES);
+    const core = subscribe('nav-hub', names.filter((n) => !TABLES[n].optional));
+    const social = subscribe('nav-hub-social', names.filter((n) => TABLES[n].optional));
+    return () => { supabase.removeChannel(core); supabase.removeChannel(social); };
   }, [fetchAll, fetchTable]);
 
   // event_rsvps is RLS-filtered per user (a member sees only their own rows,
@@ -283,6 +306,52 @@ export function AdminProvider({ children }) {
     return write(() => supabase.from('highlights').delete().eq('id', h.id));
   };
 
+  // ---- Highlight likes / comments ----
+  // Both require a signed-in member (RLS ties every row to auth.uid()), but
+  // anyone can READ them, so counts render for logged-out visitors too.
+  // String compare throughout: highlights.id is bigint on dashboard-created
+  // databases, so an id can arrive as a number here and a string there. A
+  // strict === would silently show zero likes — the same trap as event_id.
+  const likedByMe = useCallback(
+    (highlightId) => Boolean(user) && likes.some((l) => String(l.highlight_id) === String(highlightId) && l.user_id === user.id),
+    [likes, user],
+  );
+
+  const toggleLike = async (highlightId) => {
+    if (!user) return { error: 'Not signed in' };
+    const mine = likedByMe(highlightId);
+    // Flip local state first so the heart reacts on the same frame as the tap —
+    // waiting on the round-trip makes a double-tap feel broken. The realtime
+    // refetch triggered by the write reconciles us with the server a moment later.
+    setLikes((cur) => (mine
+      ? cur.filter((l) => !(String(l.highlight_id) === String(highlightId) && l.user_id === user.id))
+      : [...cur, { highlight_id: highlightId, user_id: user.id, created_at: new Date().toISOString() }]));
+    const res = await write(() => (mine
+      ? supabase.from('highlight_likes').delete().eq('highlight_id', highlightId).eq('user_id', user.id)
+      : supabase.from('highlight_likes').insert([{ highlight_id: highlightId, user_id: user.id }])));
+    if (res.error) fetchTable('highlight_likes'); // write failed — snap back to server truth
+    return res;
+  };
+
+  // author_name/avatar are copied onto the row at insert time: profiles is
+  // readable only by its owner (and admins), so a join couldn't resolve other
+  // commenters' names for a regular member. See the schema comment.
+  const addComment = (highlightId, body) => {
+    if (!user) return Promise.resolve({ error: 'Not signed in' });
+    const text = (body || '').trim();
+    if (!text) return Promise.resolve({ error: 'Say something first' });
+    const m = user.user_metadata || {};
+    return write(() => supabase.from('highlight_comments').insert([{
+      highlight_id: highlightId,
+      user_id: user.id,
+      body: text,
+      author_name: m.full_name || m.name || user.email?.split('@')[0] || 'Member',
+      author_avatar: m.avatar_url || m.picture || null,
+    }]));
+  };
+  // RLS lets a member delete their own comment; admins can delete any (moderation).
+  const removeComment = (id) => write(() => supabase.from('highlight_comments').delete().eq('id', id));
+
   // ---- RSVPs ----
   // No .select() here: anon users can't read back the row they insert (RLS lets
   // the public insert but not read event_rsvps), and requesting the row back
@@ -328,6 +397,7 @@ export function AdminProvider({ children }) {
       loginOpen, openLogin, closeLogin,
       events, addEvent, updateEvent, removeEvent,
       highlights, addHighlight, removeHighlight,
+      likes, likedByMe, toggleLike, comments, addComment, removeComment,
       rsvps, addRsvp, removeRsvp, confirmRsvp, cancelOwnRsvp,
       pins, addPin, updatePin, removePin, removeAnyPin,
       feedback, addFeedback, approveFeedback, rejectFeedback,

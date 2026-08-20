@@ -5,6 +5,7 @@ import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
 import { sendRsvpRemoved, sendRsvpConfirmed } from '../lib/email';
+import HighlightReel from './HighlightReel';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -41,7 +42,7 @@ const nameFromUser = (u) => {
 };
 
 export default function EventCard({ event: ev, manage = false, onEdit }) {
-  const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight, removeHighlight } = useAdmin();
+  const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight } = useAdmin();
   const toast = useToast();
 
   const upcoming = isUpcoming(ev.date);
@@ -49,9 +50,9 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const faqs = Array.isArray(ev.faqs) ? ev.faqs.filter((f) => f && (f.q || f.a)) : [];
   const teaser = (ev.description || htmlToText(ev.description_html)).trim();
   const hasDetails = Boolean((ev.description_html && htmlToText(ev.description_html)) || ev.description);
-  const evHighlights = highlights.filter((h) => h.event_id === ev.id);
   // String compare: event_id can come back as a different JS type than ev.id
   // (e.g. bigint vs number), and a strict === would silently hide the rows.
+  const evHighlights = highlights.filter((h) => String(h.event_id) === String(ev.id));
   const eventRsvps = rsvps.filter((r) => String(r.event_id) === String(ev.id));
 
   const [modal, setModal] = useState(null); // 'details' | 'faqs' | 'rsvp' | 'highlights' | 'rsvpsList'
@@ -59,7 +60,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const [answers, setAnswers] = useState({}); // { [questionId]: value }
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [lightbox, setLightbox] = useState(null);
   const [justWent, setJustWent] = useState(false); // optimistic, before realtime catches up
 
   // This member's RSVP for this event, if any. A member's `rsvps` only contains
@@ -67,7 +67,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const myRsvp = user ? rsvps.find((r) => String(r.event_id) === String(ev.id) && r.user_id === user.id) : null;
   const going = Boolean(myRsvp) || justWent;
 
-  const close = () => { setModal(null); setLightbox(null); };
+  const close = () => setModal(null);
 
   // ---- RSVP (login required; identity comes from the auth provider) ----
   const openRsvp = async () => {
@@ -147,6 +147,8 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   };
 
   // ---- Highlights ----
+  // Viewing (and share/download/delete of individual media) lives in
+  // HighlightReel; the card only owns the upload entry point.
   const onUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -154,22 +156,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     const res = await addHighlight(ev.id, file);
     setUploading(false);
     res.error ? toast(res.error, 'error') : toast('Highlight added ✦', 'success');
-  };
-  const downloadHighlight = async (h) => {
-    try {
-      const blob = await (await fetch(h.url)).blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = h.path?.split('/').pop() || `highlight.${h.type === 'video' ? 'mp4' : 'jpg'}`;
-      a.click(); URL.revokeObjectURL(url);
-    } catch { window.open(h.url, '_blank'); }
-  };
-  const shareHighlight = async (h) => {
-    try {
-      if (navigator.share) return navigator.share({ title: `${ev.title} — highlight`, url: h.url });
-      await navigator.clipboard.writeText(h.url);
-      toast('Link copied to clipboard', 'success');
-    } catch (err) { if (err?.name !== 'AbortError') toast('Couldn’t share — try downloading', 'error'); }
   };
 
   return (
@@ -196,15 +182,6 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
         .ec-faq summary::after { content: '+'; color: var(--teal); font-size: 1.3rem; line-height: 1; }
         .ec-faq[open] summary::after { content: '−'; }
         .ec-faq .ec-faq-a { padding: 0 1.1rem 1rem; color: var(--text-muted); line-height: 1.6; }
-        .ec-hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.9rem; }
-        .ec-hl { position: relative; aspect-ratio: 4 / 3; border-radius: var(--r-md); overflow: hidden; background: #000; cursor: pointer; border: 1px solid var(--border); }
-        .ec-hl img, .ec-hl video { width: 100%; height: 100%; object-fit: cover; }
-        .ec-hl .ec-hl-tag { position: absolute; left: 6px; top: 6px; font-size: 0.7rem; background: rgba(0,0,0,0.55); color: #fff; padding: 2px 7px; border-radius: 999px; }
-        .ec-hl .ec-hl-del { position: absolute; right: 6px; top: 6px; }
-        .ec-hl-up { display: flex; align-items: center; justify-content: center; text-align: center; aspect-ratio: 4 / 3; border: 2px dashed var(--border); border-radius: var(--r-md); cursor: pointer; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; padding: 0.5rem; background: var(--paper); }
-        .ec-lightbox { position: fixed; inset: 0; z-index: 2200; background: rgba(20,17,16,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem; animation: fadeIn .2s ease both; }
-        .ec-lightbox img, .ec-lightbox video { max-width: min(100%, 1100px); max-height: 80vh; border-radius: var(--r-md); }
-        .ec-lightbox-bar { display: flex; gap: 0.6rem; margin-top: 1rem; }
         .ec-cta-badge { justify-content: center; width: 100%; padding: 0.6rem; text-align: center; }
       `}</style>
 
@@ -360,52 +337,14 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
         </div>
       )}
 
-      {/* ---- Highlights grid ---- */}
-      {modal === 'highlights' && (
-        <div className="modal-overlay" onMouseDown={close}>
-          <div className="modal" style={{ maxWidth: 860 }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>{ev.title} — highlights</h2><button className="icon-btn" onClick={close}>✕</button></div>
-            <div className="modal-body">
-              <div className="ec-hl-grid">
-                {isAdmin && (
-                  <label className="ec-hl-up">
-                    {uploading ? 'Uploading…' : '+ Add photo / video'}
-                    <input type="file" accept="image/*,video/*" hidden onChange={onUpload} />
-                  </label>
-                )}
-                {evHighlights.map((h) => (
-                  <div key={h.id} className="ec-hl" onClick={() => setLightbox(h)}>
-                    {h.type === 'video'
-                      ? <video src={h.url} muted playsInline preload="metadata" />
-                      : <img src={h.url} alt="Event highlight" loading="lazy" />}
-                    <span className="ec-hl-tag">{h.type === 'video' ? '🎬' : '📷'}</span>
-                    {isAdmin && <button className="btn btn-sm btn-danger ec-hl-del" onClick={async (e) => { e.stopPropagation(); const r = await removeHighlight(h); r.error ? toast(r.error, 'error') : toast('Removed'); }}>✕</button>}
-                  </div>
-                ))}
-              </div>
-              {evHighlights.length === 0 && <div className="empty-state"><p>No highlights yet{isAdmin ? ' — add the first one above!' : '.'}</p></div>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---- Lightbox ---- */}
-      {lightbox && (
-        <div className="ec-lightbox" onMouseDown={() => setLightbox(null)}>
-          <div onMouseDown={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            {lightbox.type === 'video'
-              ? <video src={lightbox.url} controls autoPlay playsInline style={{ background: '#000' }} />
-              : <img src={lightbox.url} alt="Event highlight" />}
-            <div className="ec-lightbox-bar">
-              <button className="btn btn-sm btn-outline-light" onClick={() => shareHighlight(lightbox)}>↗ Share</button>
-              <button className="btn btn-sm btn-outline-light" onClick={() => downloadHighlight(lightbox)}>⬇ Download</button>
-              <button className="btn btn-sm" onClick={() => setLightbox(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
       </>,
       document.body,
+    )}
+
+    {/* Full-screen reel: swipe/scroll through the media, like, comment. Portals
+        itself, and carries its own admin upload/delete controls. */}
+    {modal === 'highlights' && (
+      <HighlightReel highlights={evHighlights} event={ev} onClose={close} onUpload={onUpload} uploading={uploading} />
     )}
     </>
   );

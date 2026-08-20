@@ -477,3 +477,110 @@ alter table public.events add column if not exists rsvp_questions jsonb not null
 -- event's rsvp_questions at render time. The old bringing_guests column is
 -- kept (not dropped) so historical RSVPs from before this change aren't lost.
 alter table public.event_rsvps add column if not exists answers jsonb not null default '{}'::jsonb;
+
+-- ============================================================
+--  HIGHLIGHT SOCIAL — likes + comments on event highlights
+--  (append; idempotent; safe to re-run)
+-- ============================================================
+
+-- Both tables carry a foreign key to highlights.id — and its type CANNOT be
+-- assumed. The create-table above declares it uuid, but that only ever runs on
+-- a fresh project: a database created through the Supabase dashboard gets its
+-- default int8 primary key instead, exactly like events.id (see the
+-- realignment block near the top of this file). Hard-coding `highlight_id uuid`
+-- here fails on such a database with:
+--   42804: Key columns "highlight_id" and "id" are of incompatible types:
+--          uuid and bigint
+-- So both tables are built dynamically against whatever type highlights.id
+-- actually is. ON DELETE CASCADE means removing a highlight takes its likes and
+-- comments with it, so deleting a photo never strands orphaned rows.
+--
+-- author_name / author_avatar on comments are DENORMALIZED on purpose. Comments
+-- are read by everyone, but public.profiles is locked down to "your own row,
+-- plus admins read all" — so resolving a commenter's name through a join would
+-- come back empty for every regular member. Stamping the display name onto the
+-- row at insert time renders correctly for everyone without loosening profiles.
+do $$
+declare
+  hl_type text;
+  t       text;
+begin
+  select format_type(atttypid, atttypmod) into hl_type
+    from pg_attribute
+    where attrelid = 'public.highlights'::regclass
+      and attname = 'id' and attnum > 0 and not attisdropped;
+
+  -- Self-heal: if an earlier run built either table against a different key
+  -- type, rebuild it. A mismatched column can't carry the foreign key, so any
+  -- rows it holds were never validated against highlights and aren't worth
+  -- keeping — the same reasoning the events/highlights realignment uses.
+  foreach t in array array['highlight_likes', 'highlight_comments']
+  loop
+    if to_regclass('public.' || t) is not null
+       and (select format_type(atttypid, atttypmod) from pg_attribute
+              where attrelid = to_regclass('public.' || t)
+                and attname = 'highlight_id' and attnum > 0 and not attisdropped)
+           is distinct from hl_type
+    then
+      execute format('drop table public.%I', t);
+    end if;
+  end loop;
+
+  -- Likes: the composite primary key IS the uniqueness rule — a member can't
+  -- like the same highlight twice, enforced server-side rather than by client
+  -- bookkeeping.
+  execute format($f$
+    create table if not exists public.highlight_likes (
+      highlight_id %s not null references public.highlights(id) on delete cascade,
+      user_id      uuid not null references auth.users(id)      on delete cascade,
+      created_at   timestamptz not null default now(),
+      primary key (highlight_id, user_id)
+    )$f$, hl_type);
+
+  execute format($f$
+    create table if not exists public.highlight_comments (
+      id            uuid primary key default gen_random_uuid(),
+      highlight_id  %s not null references public.highlights(id) on delete cascade,
+      user_id       uuid not null references auth.users(id)      on delete cascade,
+      author_name   text,
+      author_avatar text,
+      body          text not null,
+      created_at    timestamptz not null default now()
+    )$f$, hl_type);
+end $$;
+
+alter table public.highlight_comments add column if not exists author_avatar text;
+
+create index if not exists idx_hl_likes_highlight    on public.highlight_likes(highlight_id);
+create index if not exists idx_hl_comments_highlight on public.highlight_comments(highlight_id, created_at);
+
+-- ---------- RLS ----------
+alter table public.highlight_likes    enable row level security;
+alter table public.highlight_comments enable row level security;
+
+-- Likes: anyone may READ (counts render for logged-out visitors), but only a
+-- signed-in member may add/remove, and only their own row — so nobody can
+-- inflate a count or un-like someone else's like through a direct API call.
+drop policy if exists "hl_likes_read" on public.highlight_likes;
+drop policy if exists "hl_likes_self" on public.highlight_likes;
+create policy "hl_likes_read" on public.highlight_likes for select using (true);
+create policy "hl_likes_self" on public.highlight_likes for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Comments: public read; a member writes/edits/deletes only their own; admins
+-- may delete anything (moderation).
+drop policy if exists "hl_comments_read"  on public.highlight_comments;
+drop policy if exists "hl_comments_self"  on public.highlight_comments;
+drop policy if exists "hl_comments_admin" on public.highlight_comments;
+create policy "hl_comments_read"  on public.highlight_comments for select using (true);
+create policy "hl_comments_self"  on public.highlight_comments for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "hl_comments_admin" on public.highlight_comments for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- ---------- Realtime ----------
+do $$
+begin
+  begin execute 'alter publication supabase_realtime add table public.highlight_likes';    exception when duplicate_object then null; end;
+  begin execute 'alter publication supabase_realtime add table public.highlight_comments'; exception when duplicate_object then null; end;
+end $$;

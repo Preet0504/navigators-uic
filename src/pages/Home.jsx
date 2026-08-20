@@ -6,6 +6,7 @@ import { isUpcoming, parseDate } from '../lib/format';
 import BrandLogo from '../components/BrandLogo';
 import Pattern from '../components/Pattern';
 import EventCard from '../components/EventCard';
+import LatestHighlights from '../components/LatestHighlights';
 import { NAVIGATORS_ORG } from '../data/resources';
 
 const QUICK = [
@@ -168,6 +169,9 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {/* LAST EVENT'S HIGHLIGHTS (renders nothing until a past event has media) */}
+      <LatestHighlights />
 
       {/* VALUES */}
       <section className="section container">
