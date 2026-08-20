@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { formatDate, timeAgo } from '../lib/format';
+import { Heart, Comment, Share as ShareIcon, Download as DownloadIcon, VolumeOn, VolumeOff, Trash, Close, Grid, Play, ChevronUp, ChevronDown, Photo, Video } from './Icons';
 
 /**
  * Full-screen, swipeable highlight viewer — the Instagram-reel experience.
@@ -164,11 +165,15 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
       {count != null && <span className="hr-rail-n">{count}</span>}
     </button>
   );
+  const MediaKind = ({ h, size }) => (h.type === 'video' ? <Video size={size} /> : <Photo size={size} />);
 
   return createPortal(
     <div className="hr-root">
       <style>{`
-        .hr-root { position: fixed; inset: 0; z-index: 2400; background: #0b0f0f; color: #fff; display: flex; flex-direction: column; animation: fadeIn .2s ease both; }
+        /* Sits above the navbar (1101) but BELOW .modal-overlay (2000), so the
+           sign-in modal the like/comment buttons open lands on top of the reel
+           rather than behind it. */
+        .hr-root { position: fixed; inset: 0; z-index: 1900; background: #0b0f0f; color: #fff; display: flex; flex-direction: column; animation: fadeIn .2s ease both; }
         .hr-top { position: absolute; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 0.8rem;
           padding: 0.9rem 1rem; background: linear-gradient(to bottom, rgba(0,0,0,0.65), transparent); pointer-events: none; }
         .hr-top > * { pointer-events: auto; }
@@ -188,7 +193,8 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
         .hr-media { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-select: none; }
         .hr-tapzone { position: absolute; inset: 0; display: grid; place-items: center; cursor: pointer; }
 
-        .hr-burst { position: absolute; font-size: 7rem; pointer-events: none; animation: hrPop .7s var(--ease) both; }
+        .hr-burst { position: absolute; pointer-events: none; color: #ff3b5c; line-height: 0;
+          filter: drop-shadow(0 4px 14px rgba(0,0,0,0.5)); animation: hrPop .7s var(--ease) both; }
         @keyframes hrPop {
           0% { transform: scale(0.3); opacity: 0; }
           35% { transform: scale(1.15); opacity: 1; }
@@ -200,9 +206,12 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
         .hr-rail-btn { background: none; border: none; cursor: pointer; color: #fff; display: flex; flex-direction: column;
           align-items: center; gap: 0.25rem; padding: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); }
         .hr-rail-ic { width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,0.4); backdrop-filter: blur(6px);
-          display: grid; place-items: center; font-size: 1.35rem; transition: transform .2s var(--ease), background .2s var(--ease); }
+          display: grid; place-items: center; color: #fff;
+          transition: transform .2s var(--ease), background .2s var(--ease), color .2s var(--ease); }
         .hr-rail-btn:hover .hr-rail-ic { transform: scale(1.08); background: rgba(0,0,0,0.6); }
-        .hr-rail-btn.is-on .hr-rail-ic { background: rgba(225,45,75,0.9); }
+        /* Liked reads as a red filled heart, not a red pill — the icon carries
+           the state so the button chrome stays consistent across the rail. */
+        .hr-rail-btn.is-on .hr-rail-ic { color: #ff3b5c; }
         .hr-rail-n { font-size: 0.75rem; font-weight: 700; }
 
         .hr-caption { position: absolute; left: 0; right: 4.5rem; bottom: 0; z-index: 20; padding: 1.2rem 1.2rem 1.6rem;
@@ -240,19 +249,25 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
         .hr-c-n { font-size: 0.85rem; font-weight: 700; }
         .hr-c-t { font-size: 0.72rem; color: var(--text-muted); font-weight: 400; margin-left: 0.4rem; }
         .hr-c-x { font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
-        .hr-c-del { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.75rem; padding: 0.1rem 0.3rem; }
+        .hr-c-del { background: none; border: none; cursor: pointer; color: var(--text-muted); line-height: 0;
+          padding: 0.2rem; align-self: flex-start; transition: color .2s var(--ease); }
         .hr-c-del:hover { color: var(--danger, #c0392b); }
         .hr-sheet-foot { border-top: 1px solid var(--border); padding: 0.8rem 1rem; display: flex; gap: 0.6rem; }
         .hr-sheet-foot .input { flex: 1; }
 
         .hr-grid { flex: 1; overflow-y: auto; padding: 4.5rem 1.2rem 2rem; }
-        .hr-grid-in { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;
-          max-width: 1000px; margin: 0 auto; }
+        /* Fixed 3-up rather than auto-fill: on a wide screen auto-fill packed in
+           ~6 tiny columns, which made the grid unreadable as a browsing view. */
+        .hr-grid-in { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem;
+          max-width: 1080px; margin: 0 auto; }
+        @media (max-width: 640px) { .hr-grid-in { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; } }
         .hr-t { position: relative; aspect-ratio: 1; border-radius: var(--r-sm); overflow: hidden; background: #000; cursor: pointer; border: none; padding: 0; }
         .hr-t img, .hr-t video { width: 100%; height: 100%; object-fit: cover; }
-        .hr-t-n { position: absolute; left: 6px; bottom: 6px; font-size: 0.72rem; font-weight: 700; color: #fff;
-          text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
-        .hr-t-tag { position: absolute; right: 6px; top: 6px; font-size: 0.75rem; }
+        .hr-t-n { position: absolute; left: 8px; bottom: 8px; font-size: 0.78rem; font-weight: 700; color: #fff;
+          display: flex; align-items: center; gap: 4px; text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+          filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7)); }
+        .hr-t-tag { position: absolute; right: 8px; top: 8px; color: #fff; line-height: 0;
+          filter: drop-shadow(0 1px 3px rgba(0,0,0,0.8)); }
         .hr-up { display: grid; place-items: center; aspect-ratio: 1; border: 2px dashed rgba(255,255,255,0.3);
           border-radius: var(--r-sm); cursor: pointer; color: rgba(255,255,255,0.75); font-size: 0.85rem;
           font-weight: 600; text-align: center; padding: 0.5rem; }
@@ -261,7 +276,7 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
 
       {/* ---- Top bar ---- */}
       <div className="hr-top">
-        <button className="hr-icon" onClick={onClose} aria-label="Close">✕</button>
+        <button className="hr-icon" onClick={onClose} aria-label="Close"><Close size={20} /></button>
         <div className="hr-title">
           <h3>{event?.title || 'Highlights'}</h3>
           <div className="hr-sub">
@@ -271,10 +286,10 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
           </div>
         </div>
         {isAdmin && view === 'reel' && active && (
-          <button className="hr-icon" onClick={() => del(active)} aria-label="Delete highlight" title="Delete">🗑</button>
+          <button className="hr-icon" onClick={() => del(active)} aria-label="Delete highlight" title="Delete"><Trash size={19} /></button>
         )}
         <button className="hr-icon" onClick={() => setView((v) => (v === 'reel' ? 'grid' : 'reel'))} title={view === 'reel' ? 'Grid view' : 'Reel view'} aria-label="Toggle view">
-          {view === 'reel' ? '⊞' : '▶'}
+          {view === 'reel' ? <Grid size={19} /> : <Play size={18} />}
         </button>
       </div>
 
@@ -298,15 +313,15 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
                 ))}
 
                 <div className="hr-tapzone" onClick={() => { onMediaTap(h); if (h.type === 'video') setMuted((m) => !m); }}>
-                  {burst === h.id && <span className="hr-burst">❤️</span>}
+                  {burst === h.id && <span className="hr-burst"><Heart size={130} filled /></span>}
                 </div>
 
                 <div className="hr-rail">
-                  {railBtn(liked ? '❤️' : '🤍', liked ? 'Unlike' : 'Like', likesFor(h.id), () => like(h), liked)}
-                  {railBtn('💬', 'Comments', commentsFor(h.id).length, () => { goTo(i); setSheet(true); })}
-                  {railBtn('↗', 'Share', null, () => share(h))}
-                  {railBtn('⬇', 'Download', null, () => download(h))}
-                  {h.type === 'video' && railBtn(muted ? '🔇' : '🔊', muted ? 'Unmute' : 'Mute', null, () => setMuted((m) => !m))}
+                  {railBtn(<Heart filled={liked} />, liked ? 'Unlike' : 'Like', likesFor(h.id), () => like(h), liked)}
+                  {railBtn(<Comment />, 'Comments', commentsFor(h.id).length, () => { goTo(i); setSheet(true); })}
+                  {railBtn(<ShareIcon />, 'Share', null, () => share(h))}
+                  {railBtn(<DownloadIcon />, 'Download', null, () => download(h))}
+                  {h.type === 'video' && railBtn(muted ? <VolumeOff /> : <VolumeOn />, muted ? 'Unmute' : 'Mute', null, () => setMuted((m) => !m))}
                 </div>
 
                 <div className="hr-caption">
@@ -326,8 +341,8 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
       {/* Desktop paging affordance — touch devices just swipe (hidden via @media). */}
       {view === 'reel' && highlights.length > 1 && (
         <>
-          <button className="hr-icon hr-nav up" onClick={() => goTo(index - 1)} disabled={index === 0} aria-label="Previous">↑</button>
-          <button className="hr-icon hr-nav down" onClick={() => goTo(index + 1)} disabled={index === highlights.length - 1} aria-label="Next">↓</button>
+          <button className="hr-icon hr-nav up" onClick={() => goTo(index - 1)} disabled={index === 0} aria-label="Previous"><ChevronUp size={20} /></button>
+          <button className="hr-icon hr-nav down" onClick={() => goTo(index + 1)} disabled={index === highlights.length - 1} aria-label="Next"><ChevronDown size={20} /></button>
           <div className="hr-dots">
             {highlights.map((h, i) => <div key={h.id} className={`hr-dot${i === index ? ' on' : ''}`} />)}
           </div>
@@ -349,8 +364,8 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
                 {h.type === 'video'
                   ? <video src={h.url} muted playsInline preload="metadata" />
                   : <img src={h.url} alt="Event highlight" loading="lazy" />}
-                <span className="hr-t-tag">{h.type === 'video' ? '🎬' : '📷'}</span>
-                <span className="hr-t-n">{likedByMe(h.id) ? '❤️' : '🤍'} {likesFor(h.id)}</span>
+                <span className="hr-t-tag"><MediaKind h={h} size={17} /></span>
+                <span className="hr-t-n"><Heart size={14} filled={likedByMe(h.id)} /> {likesFor(h.id)}</span>
               </button>
             ))}
           </div>
@@ -363,7 +378,7 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
         <div className="hr-sheet" onMouseDown={(e) => e.stopPropagation()}>
           <div className="hr-sheet-head">
             <h4>{activeComments.length} comment{activeComments.length === 1 ? '' : 's'}</h4>
-            <button className="icon-btn" onClick={() => setSheet(false)} aria-label="Close comments">✕</button>
+            <button className="icon-btn" onClick={() => setSheet(false)} aria-label="Close comments"><Close size={18} /></button>
           </div>
           <div className="hr-sheet-body">
             {activeComments.map((c) => (
@@ -376,7 +391,7 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
                   <div className="hr-c-x">{c.body}</div>
                 </div>
                 {(isAdmin || c.user_id === user?.id) && (
-                  <button className="hr-c-del" onClick={() => deleteComment(c)} title="Delete comment">✕</button>
+                  <button className="hr-c-del" onClick={() => deleteComment(c)} title="Delete comment" aria-label="Delete comment"><Trash size={15} /></button>
                 )}
               </div>
             ))}

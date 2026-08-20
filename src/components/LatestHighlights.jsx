@@ -4,6 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 import { useReveal } from '../hooks/useReveal';
 import { isUpcoming, parseDate, formatDate } from '../lib/format';
 import HighlightReel from './HighlightReel';
+import { Heart, Photo, Video, ChevronLeft, ChevronRight } from './Icons';
 
 const sameEvent = (h, ev) => String(h.event_id) === String(ev.id);
 
@@ -51,15 +52,16 @@ export default function LatestHighlights() {
         .lh-tile .lh-scrim { position: absolute; inset: auto 0 0 0; height: 45%;
           background: linear-gradient(to top, rgba(0,0,0,0.7), transparent); pointer-events: none; }
         .lh-tile .lh-likes { position: absolute; left: 8px; bottom: 8px; font-size: 0.78rem; font-weight: 700; color: #fff;
-          display: flex; align-items: center; gap: 0.25rem; text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
-        .lh-tile .lh-kind { position: absolute; right: 8px; top: 8px; font-size: 0.8rem;
+          display: flex; align-items: center; gap: 0.28rem; text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+          filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7)); }
+        .lh-tile .lh-kind { position: absolute; right: 8px; top: 8px; color: #fff; line-height: 0;
           filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7)); }
         .lh-more { display: grid; place-items: center; flex: 0 0 auto; width: clamp(150px, 34vw, 210px); aspect-ratio: 4 / 5;
           scroll-snap-align: start; border: 2px dashed var(--border); border-radius: var(--r-md); background: var(--paper);
           cursor: pointer; color: var(--teal); font-weight: 700; font-size: 0.95rem; }
         .lh-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; width: 40px; height: 40px;
           border-radius: 50%; border: 1px solid var(--border); background: #fff; box-shadow: var(--shadow-md);
-          cursor: pointer; font-size: 1rem; color: var(--ink); }
+          cursor: pointer; color: var(--ink); display: grid; place-items: center; }
         .lh-arrow.l { left: -14px; } .lh-arrow.r { right: -14px; }
         @media (hover: none) { .lh-arrow { display: none; } }
       `}</style>
@@ -78,8 +80,8 @@ export default function LatestHighlights() {
       <div className="lh-strip-wrap reveal">
         {items.length > 2 && (
           <>
-            <button className="lh-arrow l" onClick={() => nudge(-1)} aria-label="Scroll left">‹</button>
-            <button className="lh-arrow r" onClick={() => nudge(1)} aria-label="Scroll right">›</button>
+            <button className="lh-arrow l" onClick={() => nudge(-1)} aria-label="Scroll left"><ChevronLeft size={18} /></button>
+            <button className="lh-arrow r" onClick={() => nudge(1)} aria-label="Scroll right"><ChevronRight size={18} /></button>
           </>
         )}
         <div className="lh-strip" ref={strip}>
@@ -89,8 +91,8 @@ export default function LatestHighlights() {
                 ? <video src={h.url} muted playsInline preload="metadata" />
                 : <img src={h.url} alt="" loading="lazy" />}
               <span className="lh-scrim" />
-              <span className="lh-kind">{h.type === 'video' ? '🎬' : '📷'}</span>
-              <span className="lh-likes">{likedByMe(h.id) ? '❤️' : '🤍'} {likesFor(h.id)}</span>
+              <span className="lh-kind">{h.type === 'video' ? <Video size={17} /> : <Photo size={17} />}</span>
+              <span className="lh-likes"><Heart size={14} filled={likedByMe(h.id)} /> {likesFor(h.id)}</span>
             </button>
           ))}
           <button className="lh-more" onClick={() => setOpenAt(0)}>View all {items.length} →</button>
