@@ -118,7 +118,14 @@ button { font-family: var(--font-body); }
 
 .page { padding-top: calc(var(--nav-h) + 2.5rem); padding-bottom: 5rem; min-height: 100vh; }
 
-.section { padding: 4rem 0; }
+/* Longhand on purpose: Home.jsx puts .section and .container on the SAME
+   element (<section className="section container">). Both used to declare
+   the padding shorthand, which resolves as one atomic value — so whichever
+   rule came later in the file (.section) won outright and silently zeroed
+   .container's left/right padding, even though .section never meant to touch
+   the horizontal sides. Longhand top/bottom here can never clobber
+   .container's own left/right values, regardless of source order. */
+.section { padding-top: 4rem; padding-bottom: 4rem; }
 
 /* Eyebrow / kicker label */
 .eyebrow {
