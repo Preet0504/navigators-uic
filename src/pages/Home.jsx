@@ -50,6 +50,7 @@ export default function Home() {
         .stat span { font-size: 0.85rem; color: #bfe0de; }
 
         .quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap: 1.2rem; }
+        @media (max-width: 640px) { .quick-grid { grid-template-columns: 1fr; gap: 1rem; } }
         .quick-card {
           position: relative; isolation: isolate; display: block; padding: 1.8rem 1.7rem; min-height: 190px;
           border-radius: var(--r-lg); background: #fff; border: 1px solid var(--border); overflow: hidden;
