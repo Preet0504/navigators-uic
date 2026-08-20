@@ -65,7 +65,15 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; font-size: 16px; }
+/* width + overflow-x here (not just on body) matters on iOS Safari: it measures
+   the <html> element's own scrollWidth to decide whether the page overflows.
+   If ANY element is a hair wider than the viewport — a fraction of a px from
+   flex/grid rounding is enough — Safari responds by shrinking the whole page
+   to fit, which reveals the phone's own background as colored gutters down
+   both edges. body's overflow-x:hidden alone doesn't stop that; html needs it
+   too. width:100% keeps the box from growing past the viewport in the first
+   place, so this is a backstop, not a fix for the overflow's actual cause. */
+html { scroll-behavior: smooth; font-size: 16px; width: 100%; overflow-x: hidden; }
 
 /* Fluid up-scaling for large displays. The UI is rem-based, so bumping the
    root font size (and the max content width) grows typography, spacing and
