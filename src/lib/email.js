@@ -15,13 +15,20 @@ export const emailReady = Boolean(SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY);
 if (emailReady) emailjs.init({ publicKey: PUBLIC_KEY });
 
 // The display name every notification shows as its sender, and where replies
-// land. EmailJS is client-side and can only send through whichever mailbox is
-// connected as the "Service" in the EmailJS dashboard — code here can't change
-// the actual From address, only the display name and Reply-To. If the connected
-// service isn't tim.bierma@navigators.org's own inbox, replies routing there
-// via REPLY_TO is the honest fix; see the schema.sql-adjacent setup notes for
-// the dashboard steps to make the From address itself match.
+// land. Set the template's Settings tab (not the body) to: From Name =
+// {{from_name}}, From Email = {{from_email}}, Reply To = {{reply_to}}.
+//
+// Whether FROM_EMAIL actually takes effect depends on which mailbox is
+// connected as the "Service" in the EmailJS dashboard: most providers (Gmail
+// API among them) reject a From address that isn't the authenticated account
+// or a verified alias on it, and silently send as the real account instead —
+// EmailJS can't override that, it's the provider enforcing it. It reliably
+// works when the connected service is an SMTP service authenticated as
+// tim.bierma@navigators.org itself (or a domain where that address is a
+// verified alias). REPLY_TO is the fallback that works regardless of any of
+// that: replies land in the right inbox even if From doesn't take.
 const FROM_NAME = 'Navigators at UIC';
+const FROM_EMAIL = 'tim.bierma@navigators.org';
 const REPLY_TO = 'tim.bierma@navigators.org';
 
 const fullName = (r) => `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'there';
@@ -78,14 +85,17 @@ const siteOrigin = () => (typeof window !== 'undefined' ? window.location.origin
  *   {{{details_html}}}  — event date/location card (triple braces: raw HTML)
  *   {{{cta_html}}}       — the call-to-action button (triple braces: raw HTML)
  *   {{from_name}}       — "Navigators at UIC", for a footer credit line
- * And in the template's Settings tab (not the body): set "Reply To" to
- * {{reply_to}} and "From Name" to {{from_name}} — see the EMAILJS TEMPLATE
- * comment block below for the full paste-in template + dashboard steps.
+ * And in the template's Settings tab (not the body — these three are dashboard
+ * fields, not placed in the HTML): set "From Name" to {{from_name}}, "From
+ * Email" to {{from_email}}, and "Reply To" to {{reply_to}}. See the EMAILJS
+ * TEMPLATE comment block below for the full paste-in template + dashboard
+ * steps, and the FROM_EMAIL comment above for when From Email actually takes
+ * effect vs. silently falls back to the connected account.
  */
 async function send(params) {
   if (!emailReady) return { skipped: true };
   try {
-    await emailjs.send(SERVICE_ID, TEMPLATE_ID, { from_name: FROM_NAME, reply_to: REPLY_TO, ...params });
+    await emailjs.send(SERVICE_ID, TEMPLATE_ID, { from_name: FROM_NAME, from_email: FROM_EMAIL, reply_to: REPLY_TO, ...params });
     return { ok: true };
   } catch (e) {
     console.warn('Email send failed:', e);
@@ -169,6 +179,11 @@ export function sendRsvpRemoved(rsvp, event) {
    template → "Code editor" (the </> icon, not the visual editor).
    Uses only the variables `send()` above supplies, so no other
    code changes are needed if you swap this in.
+
+   Also set on that template's Settings tab (separate from the HTML body):
+     From Name  → {{from_name}}
+     From Email → {{from_email}}
+     Reply To   → {{reply_to}}
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f1ec;padding:32px 12px;font-family:Arial,Helvetica,sans-serif;">
   <tr><td align="center">
