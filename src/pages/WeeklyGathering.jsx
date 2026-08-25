@@ -1,5 +1,7 @@
 import React from 'react';
 import { useReveal } from '../hooks/useReveal';
+import { useSeo } from '../hooks/useSeo';
+import { PAGE_SEO } from '../data/seo';
 import Pattern from '../components/Pattern';
 
 const GATHERINGS = [
@@ -20,6 +22,7 @@ const GATHERINGS = [
 ];
 
 export default function WeeklyGathering() {
+  useSeo(PAGE_SEO.weeklyGathering);
   const ref = useReveal([]);
 
   return (

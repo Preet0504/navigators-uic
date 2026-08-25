@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Static by design: only lists the app's 4 fixed top-level routes. Events
+  don't have individual URLs (they're all listed on /events), so there's
+  nothing dynamic to generate here — no build step needed to keep this
+  current. If per-event pages are ever added, this would need to become a
+  generated file instead of a hand-written one.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://navigators-uic.vercel.app/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://navigators-uic.vercel.app/events</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://navigators-uic.vercel.app/weekly-gathering</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://navigators-uic.vercel.app/community</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+</urlset>

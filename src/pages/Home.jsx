@@ -2,6 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useReveal } from '../hooks/useReveal';
+import { useSeo } from '../hooks/useSeo';
+import { PAGE_SEO } from '../data/seo';
 import { isUpcoming, parseDate } from '../lib/format';
 import BrandLogo from '../components/BrandLogo';
 import Pattern from '../components/Pattern';
@@ -23,6 +25,7 @@ const VALUES = [
 ];
 
 export default function Home() {
+  useSeo(PAGE_SEO.home);
   const { events } = useAdmin();
   const ref = useReveal([events.map((e) => e.id).join(',')]);
 

@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
+import { useSeo } from '../hooks/useSeo';
+import { PAGE_SEO, SITE_URL } from '../data/seo';
 import { isUpcoming, parseDate } from '../lib/format';
 import { htmlToText } from '../lib/richtext';
 import { uploadImage } from '../lib/supabase';
@@ -16,6 +18,7 @@ const EMPTY_EVENT = { title: '', date: '', address: '', rsvp_url: '', descriptio
 const newQuestion = () => ({ id: crypto.randomUUID(), type: 'text', label: '', required: false, options: [] });
 
 export default function Events() {
+  useSeo(PAGE_SEO.events);
   const { events, addEvent, updateEvent, isAdmin, rsvps, listMemberEmails } = useAdmin();
   const toast = useToast();
   const location = useLocation();
@@ -110,8 +113,34 @@ export default function Events() {
   const updQuestion = (i, key, val) => setDraft((d) => { const qs = [...(d.rsvp_questions || [])]; qs[i] = { ...qs[i], [key]: val }; return { ...d, rsvp_questions: qs }; });
   const rmQuestion = (i) => setDraft((d) => ({ ...d, rsvp_questions: (d.rsvp_questions || []).filter((_, j) => j !== i) }));
 
+  // Event structured data: only Googlebot reads this (link-preview bots don't
+  // run JS at all — see useSeo's doc comment), but it's what makes an event
+  // eligible for Google's date/location rich result. Always reflects every
+  // upcoming event regardless of which tab is selected, since it describes
+  // the page's content, not the current UI state. No per-event route exists,
+  // so each Event's url points back to this shared listing page.
+  const upcomingForSchema = events.filter((e) => isUpcoming(e.date)).slice(0, 20);
+  const eventJsonLd = upcomingForSchema.length ? upcomingForSchema.map((e) => ({
+    '@context': 'https://schema.org',
+    '@type': 'Event',
+    name: e.title,
+    startDate: parseDate(e.date)?.toISOString() || undefined,
+    eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+    eventStatus: 'https://schema.org/EventScheduled',
+    location: e.address
+      ? { '@type': 'Place', name: e.address, address: e.address }
+      : { '@type': 'VirtualLocation', url: `${SITE_URL}/events` },
+    description: htmlToText(e.description_html) || e.description || undefined,
+    image: e.image ? [e.image] : undefined,
+    url: `${SITE_URL}/events`,
+    organizer: { '@type': 'Organization', name: 'Navigators at UIC', url: SITE_URL },
+  })) : null;
+
   return (
     <div className="page" ref={ref}>
+      {eventJsonLd && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(eventJsonLd) }} />
+      )}
       <div className="container">
         {/* Header */}
         <header style={{ position: 'relative', borderRadius: 'var(--r-lg)', overflow: 'hidden', background: 'linear-gradient(120deg, var(--teal) 0%, var(--teal-darker) 100%)', color: '#fff', padding: 'clamp(2.5rem,5vw,3.5rem)', marginBottom: '2.5rem' }}>

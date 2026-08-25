@@ -3,6 +3,8 @@ import { Country, State } from 'country-state-city';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
+import { useSeo } from '../hooks/useSeo';
+import { PAGE_SEO } from '../data/seo';
 import Pattern from '../components/Pattern';
 import WorldMap from '../components/WorldMap';
 
@@ -20,6 +22,7 @@ const NOTE_ROTS = [-2.6, 1.7, -1.1, 2.2, -1.9, 1.2, -0.7, 2.6];
 const colsForWidth = (w) => (w < 640 ? 1 : w < 1000 ? 2 : 3);
 
 export default function Community() {
+  useSeo(PAGE_SEO.community);
   const {
     user, openLogin,
     pins, addPin, updatePin, removePin, removeAnyPin,
