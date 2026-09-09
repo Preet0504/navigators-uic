@@ -85,7 +85,11 @@ export default function Events() {
     setSaving(false);
     if (res.error) return toast(res.error, 'error');
     if (editId) {
-      const recipients = rsvps.filter((r) => r.event_id === editId && r.email);
+      // String compare: event_id can arrive as a different JS type than editId
+      // (bigint PKs — see the events-id-type-mismatch history throughout this
+      // codebase). A bare === here would have silently sent zero notification
+      // emails on any mismatch instead of erroring, so this was worth catching.
+      const recipients = rsvps.filter((r) => String(r.event_id) === String(editId) && r.email);
       if (recipients.length) {
         Promise.allSettled(recipients.map((r) => sendEventUpdate(r, { ...payload, id: editId })));
         toast(`Event updated · notifying ${recipients.length} attendee${recipients.length > 1 ? 's' : ''}`, 'success');

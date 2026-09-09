@@ -4,7 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
-import { sendRsvpRemoved, sendRsvpConfirmed } from '../lib/email';
+import { sendRsvpRemoved, sendRsvpConfirmed, sendEventReminder, emailReady } from '../lib/email';
 import HighlightReel from './HighlightReel';
 import { Share as ShareIcon } from './Icons';
 
@@ -63,6 +63,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [justWent, setJustWent] = useState(false); // optimistic, before realtime catches up
+  const [sendingReminder, setSendingReminder] = useState(false);
 
   // Opening a shared /events/:eventId(/highlight/:highlightId) link renders
   // every card as usual and passes `autoOpen` to only the one matching the
@@ -150,6 +151,32 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   const confirmRsvpHandler = async (r) => {
     const res = await confirmRsvp(r.id);
     res.error ? toast(res.error, 'error') : toast(`${r.first_name || 'RSVP'} marked confirmed ✓`, 'success');
+  };
+
+  // Admin-triggered, any time — unlike the other notifications (which fire
+  // automatically off an RSVP/edit/removal), this one only ever sends because
+  // an admin clicked the button, so it needs its own confirm + explicit
+  // success/failure reporting rather than the fire-and-forget pattern used
+  // for the automatic ones.
+  const sendReminder = async () => {
+    // send() silently no-ops ({ skipped: true }, never an error) when EmailJS
+    // isn't configured — without this check the button would report success
+    // while actually sending nothing, since a skipped send isn't counted as
+    // a failure below.
+    if (!emailReady) return toast('Email isn’t configured on this deployment — see the notice at the top of this page.', 'error');
+    const recipients = eventRsvps.filter((r) => r.email);
+    if (!recipients.length) return toast('No RSVPs to remind yet', 'gold');
+    if (!confirm(`Send a reminder to ${recipients.length} attendee${recipients.length === 1 ? '' : 's'} for "${ev.title}"?`)) return;
+    setSendingReminder(true);
+    const results = await Promise.allSettled(recipients.map((r) => sendEventReminder(r, ev)));
+    setSendingReminder(false);
+    const failed = results.filter((r) => r.status === 'rejected' || r.value?.error).length;
+    if (failed === recipients.length) return toast('Reminder failed to send', 'error');
+    const sent = recipients.length - failed;
+    toast(
+      failed ? `Reminder sent to ${sent}/${recipients.length} — ${failed} failed` : `Reminder sent to ${sent} attendee${sent === 1 ? '' : 's'} ✓`,
+      failed ? 'gold' : 'success',
+    );
   };
   const csvEsc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const exportCsv = () => {
@@ -251,6 +278,11 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
           {isAdmin ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('rsvpsList')}>👥 View RSVPs ({eventRsvps.length})</button>
+              {upcoming && (
+                <button className="btn btn-ghost" style={{ width: '100%' }} onClick={sendReminder} disabled={sendingReminder} title="Email everyone who's RSVP'd">
+                  {sendingReminder ? 'Sending…' : '🔔 Send reminder'}
+                </button>
+              )}
               {!upcoming && <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>}
             </div>
           ) : upcoming ? (

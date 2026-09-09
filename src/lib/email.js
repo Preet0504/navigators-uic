@@ -113,6 +113,11 @@ export function sendNewEvent(recipient, event) {
     heading: `A new event just went up 🎉`,
     body: `We just posted "${escapeHtml(event.title)}" — take a look and grab your spot.`,
     details_html: detailsCardHtml(event),
+    // Links to the general listing, not /events/:id, because event.id genuinely
+    // isn't available here: this fires right after insert with the pre-insert
+    // form payload, and AdminContext's write() helper discards the row Supabase
+    // hands back from .select(). Fixing that means widening write()'s return
+    // shape for every caller — worth doing on purpose, not as a drive-by here.
     cta_html: ctaButtonHtml(`${siteOrigin()}/events`, 'View & RSVP'),
   });
 }
@@ -142,7 +147,7 @@ export function sendRsvpConfirmed(rsvp, event) {
     heading: `You're confirmed! 🎉`,
     body: `You're all set for "${escapeHtml(event.title)}". We can't wait to see you there.`,
     details_html: detailsCardHtml(event) + answersHtml,
-    cta_html: ctaButtonHtml(`${siteOrigin()}/events`, 'View event details'),
+    cta_html: ctaButtonHtml(`${siteOrigin()}/events/${event.id}`, 'View event details'),
   });
 }
 
@@ -156,7 +161,7 @@ export function sendEventUpdate(rsvp, event) {
     heading: `Here's what changed`,
     body: `"${escapeHtml(event.title)}" was just updated — here are the latest details.`,
     details_html: detailsCardHtml(event),
-    cta_html: ctaButtonHtml(`${siteOrigin()}/events`, 'See updated details'),
+    cta_html: ctaButtonHtml(`${siteOrigin()}/events/${event.id}`, 'See updated details'),
   });
 }
 
@@ -171,6 +176,22 @@ export function sendRsvpRemoved(rsvp, event) {
     body: `Your spot for "${escapeHtml(event.title)}" has been cancelled. If this doesn't look right, just RSVP again or reply to this email.`,
     details_html: '',
     cta_html: ctaButtonHtml(`${siteOrigin()}/events`, 'Browse events'),
+  });
+}
+
+/** Sent to every attendee when an admin manually triggers a reminder for an
+ * upcoming event, from a button on that event's card. Unlike the other
+ * notifications, this one is never automatic — an admin chooses the moment. */
+export function sendEventReminder(rsvp, event) {
+  const name = fullName(rsvp);
+  return send({
+    to_email: rsvp.email,
+    to_name: name,
+    subject: `Reminder — ${event.title}`,
+    heading: `Don't forget! 👋`,
+    body: `Just a friendly reminder — you're going to "${escapeHtml(event.title)}". Here are the details again:`,
+    details_html: detailsCardHtml(event),
+    cta_html: ctaButtonHtml(`${siteOrigin()}/events/${event.id}`, 'View event details'),
   });
 }
 
