@@ -181,8 +181,15 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
       <style>{`
         /* Sits above the navbar (1101) but BELOW .modal-overlay (2000), so the
            sign-in modal the like/comment buttons open lands on top of the reel
-           rather than behind it. */
-        .hr-root { position: fixed; inset: 0; z-index: 1900; background: #0b0f0f; color: #fff; display: flex; flex-direction: column; animation: fadeIn .2s ease both; }
+           rather than behind it.
+           height:100dvh (not just inset:0) matters on phones: position:fixed
+           with inset:0 alone can size against the browser's "large viewport"
+           — the full height with the address bar hidden — rather than what's
+           actually visible right now, leaving a gap at the bottom equal to
+           the address bar whenever it's showing. dvh tracks the real,
+           current visual viewport instead. Same fix Navbar's .mobile-panel
+           already uses for its off-canvas menu. */
+        .hr-root { position: fixed; inset: 0; height: 100dvh; width: 100vw; z-index: 1900; background: #0b0f0f; color: #fff; display: flex; flex-direction: column; animation: fadeIn .2s ease both; }
         .hr-top { position: absolute; top: 0; left: 0; right: 0; z-index: 30; display: flex; align-items: center; gap: 0.8rem;
           padding: 0.9rem 1rem; background: linear-gradient(to bottom, rgba(0,0,0,0.65), transparent); pointer-events: none; }
         .hr-top > * { pointer-events: auto; }
