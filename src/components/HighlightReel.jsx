@@ -16,12 +16,16 @@ import { Heart, Comment, Share as ShareIcon, Download as DownloadIcon, VolumeOn,
  * Used from both EventCard ("View highlights") and the home page strip, so
  * everything media-related — share, download, admin delete — lives here.
  */
-export default function HighlightReel({ highlights, event, startIndex = 0, onClose, onUpload, uploading = false }) {
+export default function HighlightReel({ highlights, event, startIndex = 0, initialView = 'reel', onViewChange, onClose, onUpload, uploading = false }) {
   const { isAdmin, user, openLogin, removeHighlight, likes, comments, likedByMe, toggleLike, addComment, removeComment } = useAdmin();
   const toast = useToast();
 
   const [index, setIndex] = useState(startIndex);
-  const [view, setView] = useState('reel'); // 'reel' | 'grid'
+  const [view, setView] = useState(initialView); // 'reel' | 'grid'
+  // Reports view changes upward (EventCard mirrors it into ?view=grid in the
+  // URL); onViewChange is optional so callers that don't have a URL to sync
+  // to (the home page's highlight strip) can just omit it.
+  const setViewAndReport = (v) => { setView(v); onViewChange?.(v); };
   const [sheet, setSheet] = useState(false); // comment sheet open
   const [draft, setDraft] = useState('');
   const [posting, setPosting] = useState(false);
@@ -304,7 +308,7 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
         {isAdmin && view === 'reel' && active && (
           <button className="hr-icon" onClick={() => del(active)} aria-label="Delete highlight" title="Delete"><Trash size={19} /></button>
         )}
-        <button className="hr-icon" onClick={() => setView((v) => (v === 'reel' ? 'grid' : 'reel'))} title={view === 'reel' ? 'Grid view' : 'Reel view'} aria-label="Toggle view">
+        <button className="hr-icon" onClick={() => setViewAndReport(view === 'reel' ? 'grid' : 'reel')} title={view === 'reel' ? 'Grid view' : 'Reel view'} aria-label="Toggle view">
           {view === 'reel' ? <Grid size={19} /> : <Play size={18} />}
         </button>
       </div>
@@ -376,7 +380,7 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
               </label>
             )}
             {highlights.map((h, i) => (
-              <button key={h.id} className="hr-t" onClick={() => { jumpTo.current = i; setIndex(i); setView('reel'); }}>
+              <button key={h.id} className="hr-t" onClick={() => { jumpTo.current = i; setIndex(i); setViewAndReport('reel'); }}>
                 {h.type === 'video'
                   ? <video src={h.url} muted playsInline preload="metadata" />
                   : <img src={h.url} alt="Event highlight" loading="lazy" />}

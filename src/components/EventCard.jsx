@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
@@ -46,6 +47,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight } = useAdmin();
   const toast = useToast();
   const cardRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const upcoming = isUpcoming(ev.date);
   const d = formatDay(ev.date);
@@ -89,7 +91,30 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   const myRsvp = user ? rsvps.find((r) => String(r.event_id) === String(ev.id) && r.user_id === user.id) : null;
   const going = Boolean(myRsvp) || justWent;
 
-  const close = () => setModal(null);
+  // Grid vs. reel view is reflected in the URL as ?view=grid — deliberately
+  // NOT the scroll position/current highlight within the reel (that would
+  // spam browser history on every swipe and break the back button, the way
+  // no reel-style app actually does it; sharing "what I'm looking at right
+  // now" is already covered by the explicit Share button). This toggle is a
+  // discrete, infrequent choice, same as Events.jsx's own ?tab= pattern, so
+  // it's cheap and safe to sync.
+  const initialReelView = searchParams.get('view') === 'grid' ? 'grid' : 'reel';
+  const setReelView = (v) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v === 'grid') next.set('view', 'grid'); else next.delete('view');
+      return next;
+    }, { replace: true }); // replace, not push — a view toggle isn't a new "page"
+  };
+
+  const close = () => {
+    setModal(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('view');
+      return next;
+    }, { replace: true });
+  };
 
   // ---- RSVP (login required; identity comes from the auth provider) ----
   const openRsvp = async () => {
@@ -411,7 +436,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
     {/* Full-screen reel: swipe/scroll through the media, like, comment. Portals
         itself, and carries its own admin upload/delete controls. */}
     {modal === 'highlights' && (
-      <HighlightReel highlights={evHighlights} event={ev} startIndex={autoOpenHighlightIndex} onClose={close} onUpload={onUpload} uploading={uploading} />
+      <HighlightReel highlights={evHighlights} event={ev} startIndex={autoOpenHighlightIndex} initialView={initialReelView} onViewChange={setReelView} onClose={close} onUpload={onUpload} uploading={uploading} />
     )}
     </>
   );
