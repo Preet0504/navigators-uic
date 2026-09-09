@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
 import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
@@ -43,10 +43,11 @@ const nameFromUser = (u) => {
   };
 };
 
-export default function EventCard({ event: ev, manage = false, onEdit, autoOpen = null }) {
+export default function EventCard({ event: ev, manage = false, onEdit, activeEventId = null, activeHighlightId = null }) {
   const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight } = useAdmin();
   const toast = useToast();
   const cardRef = useRef(null);
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const upcoming = isUpcoming(ev.date);
@@ -67,24 +68,45 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   const [justWent, setJustWent] = useState(false); // optimistic, before realtime catches up
   const [sendingReminder, setSendingReminder] = useState(false);
 
-  // Opening a shared /events/:eventId(/highlight/:highlightId) link renders
-  // every card as usual and passes `autoOpen` to only the one matching the
-  // URL, so that card opens itself and scrolls into view — same page, no
-  // separate detail-page implementation needed. Runs once on mount only:
-  // this card either is the shared target from the start or it isn't: the
-  // URL that decided autoOpen doesn't change across this card's lifetime.
+  // The card is now itself the click target for the expanded popup (see
+  // .ec-cover/.ec-body below), and that's what /events/:eventId is FOR — so
+  // the URL has to be the source of truth for whether 'expanded'/'highlights'
+  // is open, not just a one-time seed on mount like it was before clicking
+  // the card could also open these. Every other modal (rsvp, faqs-now-merged,
+  // rsvpsList) stays purely local state, untouched by this.
+  const isTarget = activeEventId != null && String(ev.id) === String(activeEventId);
   useEffect(() => {
-    if (!autoOpen) return;
-    setModal(autoOpen.highlightId ? 'highlights' : 'details');
-    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (isTarget) {
+      // modal can't be a purely derived value: it also has to be freely
+      // settable by non-URL actions (e.g. opening the RSVP form while
+      // staying on this same /events/:id URL), so it has to stay real state
+      // kept in sync via effect rather than computed inline.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setModal(activeHighlightId ? 'highlights' : 'expanded');
+      cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      // The URL moved away from this event — close ONLY if a URL-driven modal
+      // was showing, so this never stomps on a locally-opened one (rsvp, etc.)
+      // that has nothing to do with the URL.
+      setModal((m) => (m === 'expanded' || m === 'highlights' ? null : m));
+    }
+  }, [isTarget, activeHighlightId]);
   // Index to open the reel at, resolved from the shared highlight's id — not
-  // stored in state, since evHighlights can legitimately arrive after this
-  // mount effect already ran (see EventCard's HighlightReel doc comment).
-  const autoOpenHighlightIndex = autoOpen?.highlightId
-    ? Math.max(0, evHighlights.findIndex((h) => String(h.id) === String(autoOpen.highlightId)))
+  // stored in state, since evHighlights can legitimately arrive after the
+  // effect above already ran (see EventCard's HighlightReel doc comment).
+  const autoOpenHighlightIndex = activeHighlightId
+    ? Math.max(0, evHighlights.findIndex((h) => String(h.id) === String(activeHighlightId)))
     : 0;
+
+  // Both push a new URL rather than setModal() directly — the effect above
+  // is what actually opens the modal, once isTarget flips true. Keeps the
+  // URL as the single source of truth instead of two ways to reach the same
+  // state that could drift out of sync with each other.
+  const openExpanded = () => navigate(`/events/${ev.id}`);
+  const openHighlights = () => {
+    if (evHighlights.length > 0) navigate(`/events/${ev.id}/highlight/${evHighlights[0].id}`);
+    else setModal('highlights'); // no highlights to deep-link to yet; just show the empty state locally
+  };
 
   // This member's RSVP for this event, if any. A member's `rsvps` only contains
   // their own rows (RLS), so this is the source of truth once realtime lands.
@@ -108,12 +130,14 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
   };
 
   const close = () => {
+    // Only 'expanded'/'highlights' were opened by the URL (see the isTarget
+    // effect above) — for those, closing has to leave /events/:id too, or
+    // the URL would still claim "viewing this event" with nothing shown for
+    // it, and refreshing/re-sharing that URL would silently reopen it.
+    const wasUrlDriven = modal === 'expanded' || modal === 'highlights';
     setModal(null);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete('view');
-      return next;
-    }, { replace: true });
+    if (wasUrlDriven) navigate('/events', { replace: true });
+    else setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete('view'); return next; }, { replace: true });
   };
 
   // ---- RSVP (login required; identity comes from the auth provider) ----
@@ -243,6 +267,35 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
     res.error ? toast(res.error, 'error') : toast('Highlight added ✦', 'success');
   };
 
+  // Shared between the small card and the expanded popup — same admin/RSVP/
+  // highlights logic either way, just shown in two places, so this lives
+  // here once rather than as two copies that could quietly drift apart.
+  const actionArea = isAdmin ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('rsvpsList')}>👥 View RSVPs ({eventRsvps.length})</button>
+      {upcoming && (
+        <button className="btn btn-ghost" style={{ width: '100%' }} onClick={sendReminder} disabled={sendingReminder} title="Email everyone who's RSVP'd">
+          {sendingReminder ? 'Sending…' : '🔔 Send reminder'}
+        </button>
+      )}
+      {!upcoming && <button className="btn btn-ghost" style={{ width: '100%' }} onClick={openHighlights}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>}
+    </div>
+  ) : upcoming ? (
+    <>
+      <Countdown targetDate={ev.date} />
+      {going ? (
+        <>
+          <div className="badge ec-cta-badge" style={{ marginTop: '1rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ You’re going!</div>
+          <button className="btn btn-ghost btn-sm" style={{ width: '100%', marginTop: '0.5rem' }} onClick={cancelRsvp}>Cancel RSVP</button>
+        </>
+      ) : (
+        <button className="btn" style={{ width: '100%', marginTop: '1rem' }} onClick={openRsvp}>{user ? 'RSVP now' : 'Sign in to RSVP'}</button>
+      )}
+    </>
+  ) : (
+    <button className="btn btn-ghost" style={{ width: '100%' }} onClick={openHighlights}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>
+  );
+
   return (
     <>
     <article ref={cardRef} className="ec card admin-zone" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -257,6 +310,21 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
         .ec .ec-actions { margin-top: auto; padding-top: 0.9rem; }
         .ec .ec-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
         .ec .ec-share-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+        /* The image + title/teaser block double as a click target for the
+           expanded popup — a bonus for pointer/touch users. The "View
+           details" button is the real, keyboard-accessible way in; these
+           divs aren't given a role/tabIndex on purpose, since duplicating
+           that as a second focus stop would be redundant, not additive. */
+        .ec .ec-clickable { cursor: pointer; }
+        .ec .ec-cover.ec-clickable img { transition: transform .4s var(--ease); }
+        .ec .ec-cover.ec-clickable:hover img { transform: scale(1.04); }
+        .ec .ec-title-block.ec-clickable:hover h3 { color: var(--teal); }
+        .ec-expand { max-width: 640px; padding: 0; position: relative; }
+        .ec-expand-close { position: absolute; top: 12px; right: 12px; z-index: 2; background: rgba(20,17,16,0.55); color: #fff; }
+        .ec-expand-close:hover { background: rgba(20,17,16,0.75); color: #fff; }
+        .ec-expand-img { width: 100%; height: 260px; object-fit: cover; display: block; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+        .ec-expand-body { padding: 1.7rem 1.8rem 1.9rem; }
+        .ec-expand-actions { margin-top: 1.8rem; padding-top: 1.4rem; border-top: 1px solid var(--border); }
         .rte-content { color: var(--text); line-height: 1.7; }
         .rte-content p { margin: 0 0 0.7rem; }
         .rte-content ul, .rte-content ol { padding-left: 1.4rem; margin: 0.5rem 0; }
@@ -278,7 +346,7 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
         </div>
       )}
 
-      <div className="ec-cover">
+      <div className="ec-cover ec-clickable" onClick={openExpanded}>
         <img src={ev.image || '/sample-event.png'} alt={ev.title} loading="lazy" />
         <div className="ec-date"><div className="dd">{d.day}</div><div className="mm">{d.month}</div></div>
       </div>
@@ -287,77 +355,64 @@ export default function EventCard({ event: ev, manage = false, onEdit, autoOpen 
         {ev.address && (
           <a href={`https://maps.google.com/?q=${encodeURIComponent(ev.address)}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--orange)', marginBottom: '0.4rem', display: 'inline-block' }}>📍 {ev.address}</a>
         )}
-        <div className="badge" style={{ marginBottom: '0.5rem' }}>{formatDate(ev.date)}</div>
-        <h3 style={{ fontSize: '1.35rem', marginBottom: '0.4rem' }}>{ev.title}</h3>
-        {teaser && <p className="ec-teaser">{teaser}</p>}
+        <div className="ec-title-block ec-clickable" onClick={openExpanded}>
+          <div className="badge" style={{ marginBottom: '0.5rem' }}>{formatDate(ev.date)}</div>
+          <h3 style={{ fontSize: '1.35rem', marginBottom: '0.4rem' }}>{ev.title}</h3>
+          {teaser && <p className="ec-teaser">{teaser}</p>}
+        </div>
 
         <div className="ec-actions">
           <div className="ec-links">
-            {hasDetails && <button className="btn btn-ghost btn-sm" onClick={() => setModal('details')}>Details</button>}
-            {faqs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setModal('faqs')}>FAQs</button>}
+            <button className="btn btn-ghost btn-sm" onClick={openExpanded}>View details</button>
             <button className="btn btn-ghost btn-sm ec-share-btn" onClick={shareEvent} title="Share this event" aria-label="Share this event">
               <ShareIcon size={15} /> Share
             </button>
           </div>
 
-          {isAdmin ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('rsvpsList')}>👥 View RSVPs ({eventRsvps.length})</button>
-              {upcoming && (
-                <button className="btn btn-ghost" style={{ width: '100%' }} onClick={sendReminder} disabled={sendingReminder} title="Email everyone who's RSVP'd">
-                  {sendingReminder ? 'Sending…' : '🔔 Send reminder'}
-                </button>
-              )}
-              {!upcoming && <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>}
-            </div>
-          ) : upcoming ? (
-            <>
-              <Countdown targetDate={ev.date} />
-              {going ? (
-                <>
-                  <div className="badge ec-cta-badge" style={{ marginTop: '1rem', background: 'rgba(0,140,149,0.12)', color: 'var(--teal-dark)' }}>✓ You’re going!</div>
-                  <button className="btn btn-ghost btn-sm" style={{ width: '100%', marginTop: '0.5rem' }} onClick={cancelRsvp}>Cancel RSVP</button>
-                </>
-              ) : (
-                <button className="btn" style={{ width: '100%', marginTop: '1rem' }} onClick={openRsvp}>{user ? 'RSVP now' : 'Sign in to RSVP'}</button>
-              )}
-            </>
-          ) : (
-            <button className="btn btn-ghost" style={{ width: '100%' }} onClick={() => setModal('highlights')}>▶ View highlights{evHighlights.length ? ` (${evHighlights.length})` : ''}</button>
-          )}
+          {actionArea}
         </div>
       </div>
     </article>
 
     {createPortal(
       <>
-      {/* ---- Details modal ---- */}
-      {modal === 'details' && (
+      {/* ---- Expanded event popup ---- */}
+      {/* The click target for the whole card, and the URL-driven view opened
+          by a shared /events/:id link. Consolidates what used to be two
+          separate modals (Details, FAQs) plus a copy of the RSVP/highlights
+          action area, so this is genuinely everything about the event in one
+          "zoomed in" place instead of three clicks deep. */}
+      {modal === 'expanded' && (
         <div className="modal-overlay" onMouseDown={close}>
-          <div className="modal" style={{ maxWidth: 640 }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>{ev.title}</h2><button className="icon-btn" onClick={close}>✕</button></div>
-            <div className="modal-body">
-              <div className="muted" style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>{formatDate(ev.date)}{ev.address ? ` · ${ev.address}` : ''}</div>
-              {ev.description_html
-                ? <div className="rte-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(ev.description_html) }} />
-                : <p style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{ev.description}</p>}
-            </div>
-          </div>
-        </div>
-      )}
+          <div className="modal ec-expand" onMouseDown={(e) => e.stopPropagation()}>
+            <button className="icon-btn ec-expand-close" onClick={close} aria-label="Close">✕</button>
+            <img className="ec-expand-img" src={ev.image || '/sample-event.png'} alt={ev.title} />
+            <div className="ec-expand-body">
+              {ev.address && (
+                <a href={`https://maps.google.com/?q=${encodeURIComponent(ev.address)}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--orange)', marginBottom: '0.5rem', display: 'inline-block' }}>📍 {ev.address}</a>
+              )}
+              <div className="badge" style={{ marginBottom: '0.6rem' }}>{formatDate(ev.date)}</div>
+              <h2 style={{ fontSize: '1.7rem', marginBottom: hasDetails || faqs.length > 0 ? '1rem' : 0 }}>{ev.title}</h2>
 
-      {/* ---- FAQs modal ---- */}
-      {modal === 'faqs' && (
-        <div className="modal-overlay" onMouseDown={close}>
-          <div className="modal" style={{ maxWidth: 620 }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h2>FAQs — {ev.title}</h2><button className="icon-btn" onClick={close}>✕</button></div>
-            <div className="modal-body">
-              {faqs.map((f, i) => (
-                <details key={i} className="ec-faq" open={i === 0}>
-                  <summary>{f.q || 'Question'}</summary>
-                  <div className="ec-faq-a" style={{ whiteSpace: 'pre-wrap' }}>{f.a}</div>
-                </details>
-              ))}
+              {hasDetails && (
+                ev.description_html
+                  ? <div className="rte-content" dangerouslySetInnerHTML={{ __html: sanitizeHtml(ev.description_html) }} />
+                  : <p style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{ev.description}</p>
+              )}
+
+              {faqs.length > 0 && (
+                <div style={{ marginTop: hasDetails ? '1.6rem' : 0 }}>
+                  <h3 style={{ fontSize: '1.05rem', marginBottom: '0.8rem' }}>FAQs</h3>
+                  {faqs.map((f, i) => (
+                    <details key={i} className="ec-faq" open={i === 0}>
+                      <summary>{f.q || 'Question'}</summary>
+                      <div className="ec-faq-a" style={{ whiteSpace: 'pre-wrap' }}>{f.a}</div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
+              <div className="ec-expand-actions">{actionArea}</div>
             </div>
           </div>
         </div>

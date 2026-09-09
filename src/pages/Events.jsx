@@ -287,7 +287,8 @@ export default function Events() {
               event={ev}
               manage
               onEdit={startEdit}
-              autoOpen={eventId && String(ev.id) === eventId ? { highlightId: highlightId || null } : null}
+              activeEventId={eventId || null}
+              activeHighlightId={highlightId || null}
             />
           ))}
         </div>
