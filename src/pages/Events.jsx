@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from '../components/Toast';
 import { useReveal } from '../hooks/useReveal';
@@ -22,6 +22,9 @@ export default function Events() {
   const { events, addEvent, updateEvent, isAdmin, rsvps, listMemberEmails } = useAdmin();
   const toast = useToast();
   const location = useLocation();
+  // Set by a shared /events/:eventId(/highlight/:highlightId) link (see
+  // App.jsx — both routes render this same component).
+  const { eventId, highlightId } = useParams();
 
   // If ?tab=completed is in the URL, start on the completed tab
   const initialTab = new URLSearchParams(location.search).get('tab') || 'upcoming';
@@ -42,6 +45,26 @@ export default function Events() {
   const ref = useReveal([tab, shown.map((e) => e.id).join(',')]);
 
   useEffect(() => setVisible(PAGE_SIZE), [tab]);
+
+  // A shared event link should open on whichever tab that event actually
+  // lives in, not always "upcoming". `events` starts empty and loads
+  // async, so this keeps re-checking as it fills in rather than only
+  // running once against an empty list.
+  useEffect(() => {
+    if (!eventId) return;
+    const target = events.find((e) => String(e.id) === eventId);
+    if (target) setTab(isUpcoming(target.date) ? 'upcoming' : 'completed');
+  }, [eventId, events]);
+
+  // Pagination defaults to showing only the first PAGE_SIZE events — without
+  // this, a shared link to an older event further down the sorted list would
+  // silently not render at all. Same async-arrival reasoning as above.
+  useEffect(() => {
+    if (!eventId) return;
+    const idx = filtered.findIndex((e) => String(e.id) === eventId);
+    if (idx >= 0 && idx >= visible) setVisible(idx + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, filtered]);
 
   const resetForm = () => { setShowForm(false); setEditId(null); setDraft(EMPTY_EVENT); };
 
@@ -255,7 +278,13 @@ export default function Events() {
         {/* Grid */}
         <div className="grid grid-auto">
           {shown.map((ev) => (
-            <EventCard key={ev.id} event={ev} manage onEdit={startEdit} />
+            <EventCard
+              key={ev.id}
+              event={ev}
+              manage
+              onEdit={startEdit}
+              autoOpen={eventId && String(ev.id) === eventId ? { highlightId: highlightId || null } : null}
+            />
           ))}
         </div>
 

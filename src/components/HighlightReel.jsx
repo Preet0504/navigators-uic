@@ -112,7 +112,10 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
 
   // A double-tap on the media likes it, the way every feed app works. Tracked by
   // timestamp rather than onDoubleClick so touch and mouse behave identically.
+  // Only ever invoked from an onClick handler below, never during render —
+  // the lint rule can't trace that through the indirection, hence the disable.
   const onMediaTap = (h) => {
+    // eslint-disable-next-line react-hooks/purity -- click handler, not render
     const now = Date.now();
     if (now - lastTap.current < 300) { lastTap.current = 0; like(h, { force: true }); }
     else lastTap.current = now;
@@ -135,10 +138,16 @@ export default function HighlightReel({ highlights, event, startIndex = 0, onClo
   };
 
   // ---- Media actions ----
+  // Shares a link to THIS SITE at this exact highlight, not h.url — h.url is
+  // the raw Supabase Storage file URL, and sharing that would hand recipients
+  // a direct link into the database's storage bucket instead of the app.
+  // Opening that link re-enters this same reel at the right item via the
+  // eventId/highlightId route in App.jsx.
   const share = async (h) => {
+    const shareUrl = event?.id != null ? `${window.location.origin}/events/${event.id}/highlight/${h.id}` : h.url;
     try {
-      if (navigator.share) return await navigator.share({ title: `${event?.title || 'Highlight'}`, url: h.url });
-      await navigator.clipboard.writeText(h.url);
+      if (navigator.share) return await navigator.share({ title: `${event?.title || 'Highlight'}`, url: shareUrl });
+      await navigator.clipboard.writeText(shareUrl);
       toast('Link copied to clipboard', 'success');
     } catch (err) { if (err?.name !== 'AbortError') toast('Couldn’t share — try downloading', 'error'); }
   };

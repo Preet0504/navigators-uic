@@ -26,6 +26,11 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/events" element={<Events />} />
+                {/* Same component, read via useParams() — a shared event/highlight link
+                    lands on the normal Events page with that one card auto-opened,
+                    instead of needing a separate detail-page implementation. */}
+                <Route path="/events/:eventId" element={<Events />} />
+                <Route path="/events/:eventId/highlight/:highlightId" element={<Events />} />
                 <Route path="/weekly-gathering" element={<WeeklyGathering />} />
                 <Route path="/community" element={<Suspense fallback={<div className="page container" style={{ textAlign: 'center', paddingTop: 'calc(var(--nav-h) + 4rem)' }}><span className="badge badge-soft">Loading the map…</span></div>}><Community /></Suspense>} />
               </Routes>

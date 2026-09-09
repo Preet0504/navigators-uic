@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useToast } from './Toast';
@@ -6,6 +6,7 @@ import { isUpcoming, parseDate, formatDate, formatDay } from '../lib/format';
 import { sanitizeHtml, htmlToText } from '../lib/richtext';
 import { sendRsvpRemoved, sendRsvpConfirmed } from '../lib/email';
 import HighlightReel from './HighlightReel';
+import { Share as ShareIcon } from './Icons';
 
 function Countdown({ targetDate }) {
   const [t, setT] = useState(null);
@@ -41,9 +42,10 @@ const nameFromUser = (u) => {
   };
 };
 
-export default function EventCard({ event: ev, manage = false, onEdit }) {
+export default function EventCard({ event: ev, manage = false, onEdit, autoOpen = null }) {
   const { isAdmin, user, openLogin, removeEvent, addRsvp, rsvps, removeRsvp, confirmRsvp, cancelOwnRsvp, highlights, addHighlight } = useAdmin();
   const toast = useToast();
+  const cardRef = useRef(null);
 
   const upcoming = isUpcoming(ev.date);
   const d = formatDay(ev.date);
@@ -61,6 +63,25 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [justWent, setJustWent] = useState(false); // optimistic, before realtime catches up
+
+  // Opening a shared /events/:eventId(/highlight/:highlightId) link renders
+  // every card as usual and passes `autoOpen` to only the one matching the
+  // URL, so that card opens itself and scrolls into view — same page, no
+  // separate detail-page implementation needed. Runs once on mount only:
+  // this card either is the shared target from the start or it isn't: the
+  // URL that decided autoOpen doesn't change across this card's lifetime.
+  useEffect(() => {
+    if (!autoOpen) return;
+    setModal(autoOpen.highlightId ? 'highlights' : 'details');
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Index to open the reel at, resolved from the shared highlight's id — not
+  // stored in state, since evHighlights can legitimately arrive after this
+  // mount effect already ran (see EventCard's HighlightReel doc comment).
+  const autoOpenHighlightIndex = autoOpen?.highlightId
+    ? Math.max(0, evHighlights.findIndex((h) => String(h.id) === String(autoOpen.highlightId)))
+    : 0;
 
   // This member's RSVP for this event, if any. A member's `rsvps` only contains
   // their own rows (RLS), so this is the source of truth once realtime lands.
@@ -146,6 +167,18 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     URL.revokeObjectURL(url);
   };
 
+  // ---- Share (this event, not a highlight) ----
+  // Points at this app's own /events/:id route, not any database/storage
+  // URL — the same principle as HighlightReel's per-highlight share.
+  const shareEvent = async () => {
+    const url = `${window.location.origin}/events/${ev.id}`;
+    try {
+      if (navigator.share) return await navigator.share({ title: ev.title, url });
+      await navigator.clipboard.writeText(url);
+      toast('Link copied to clipboard', 'success');
+    } catch (err) { if (err?.name !== 'AbortError') toast('Couldn’t share — try copying the link', 'error'); }
+  };
+
   // ---- Highlights ----
   // Viewing (and share/download/delete of individual media) lives in
   // HighlightReel; the card only owns the upload entry point.
@@ -160,7 +193,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
 
   return (
     <>
-    <article className="ec card admin-zone" style={{ display: 'flex', flexDirection: 'column' }}>
+    <article ref={cardRef} className="ec card admin-zone" style={{ display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .ec .ec-cover { position: relative; }
         .ec .ec-cover img { width: 100%; height: 180px; object-fit: cover; }
@@ -171,6 +204,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
         .ec .ec-teaser { color: var(--text-muted); font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .ec .ec-actions { margin-top: auto; padding-top: 0.9rem; }
         .ec .ec-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.9rem; }
+        .ec .ec-share-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
         .rte-content { color: var(--text); line-height: 1.7; }
         .rte-content p { margin: 0 0 0.7rem; }
         .rte-content ul, .rte-content ol { padding-left: 1.4rem; margin: 0.5rem 0; }
@@ -206,12 +240,13 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
         {teaser && <p className="ec-teaser">{teaser}</p>}
 
         <div className="ec-actions">
-          {(hasDetails || faqs.length > 0) && (
-            <div className="ec-links">
-              {hasDetails && <button className="btn btn-ghost btn-sm" onClick={() => setModal('details')}>Details</button>}
-              {faqs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setModal('faqs')}>FAQs</button>}
-            </div>
-          )}
+          <div className="ec-links">
+            {hasDetails && <button className="btn btn-ghost btn-sm" onClick={() => setModal('details')}>Details</button>}
+            {faqs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setModal('faqs')}>FAQs</button>}
+            <button className="btn btn-ghost btn-sm ec-share-btn" onClick={shareEvent} title="Share this event" aria-label="Share this event">
+              <ShareIcon size={15} /> Share
+            </button>
+          </div>
 
           {isAdmin ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -344,7 +379,7 @@ export default function EventCard({ event: ev, manage = false, onEdit }) {
     {/* Full-screen reel: swipe/scroll through the media, like, comment. Portals
         itself, and carries its own admin upload/delete controls. */}
     {modal === 'highlights' && (
-      <HighlightReel highlights={evHighlights} event={ev} onClose={close} onUpload={onUpload} uploading={uploading} />
+      <HighlightReel highlights={evHighlights} event={ev} startIndex={autoOpenHighlightIndex} onClose={close} onUpload={onUpload} uploading={uploading} />
     )}
     </>
   );
